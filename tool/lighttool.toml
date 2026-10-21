@@ -2,8 +2,8 @@
 # ID bleibt aus der Zeit als „komoonlight“ – eine neue ID wäre für LightOS/BrightMarket eine neue App
 id = "de.meisterreineke.komoonlight"
 label = "Spur"
-versionCode = 11
-versionName = "0.10.1"
+versionCode = 12
+versionName = "0.10.2"
 permissions = [
     "android.permission.INTERNET",
     "android.permission.ACCESS_FINE_LOCATION",
