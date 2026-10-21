@@ -176,7 +176,7 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
         LightTheme(colors = themeColors) {
             Column(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
                 LightTopBar(
-                    center = LightTopBarCenter.Text("FOX Spur Light"),
+                    center = LightTopBarCenter.Text("Spur"),
                     rightButton = if (session != null) LightBarButton.Text("Abmelden", onClick = { viewModel.logout() }) else null,
                     modifier = Modifier.padding(bottom = 1f.gridUnitsAsDp()),
                 )
@@ -190,7 +190,7 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
                                 .padding(vertical = 12.dp),
                         )
                     }
-                    LightText("Ohne Route aufzeichnen – wird danach bei Komoot gespeichert", LightTextVariant.Detail, lighten = true,
+                    LightText("Freie Aufzeichnung ohne geplante Tour – wird danach bei Komoot gespeichert", LightTextVariant.Detail, lighten = true,
                         modifier = Modifier.padding(bottom = if (sync == null) 24.dp else 8.dp))
                     sync?.let {
                         LightText(it, LightTextVariant.Detail,

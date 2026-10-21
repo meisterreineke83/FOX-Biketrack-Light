@@ -14,7 +14,7 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 
 ## Funktionen (v0.10)
 
-- **Rad oder Wandern**: ohne Route sofort aufzeichnen – Kilometer, Zeit, Ø-Tempo
+- **Rad oder Wandern**: ohne geplante Tour sofort aufzeichnen – Kilometer, Zeit, Ø-Tempo
   (geht auch ohne Komoot-Anmeldung). Bei geplanten Touren gilt die in Komoot geplante Sportart.
   Bestimmt Name („Radtour …“ / „Wanderung …“) und Sportart beim Upload.
 - **Auto-Pause**: 5 s Stillstand (< 10 m Rad, < 4 m zu Fuß) pausiert die Aufzeichnung, weiterfahren setzt sie fort;
