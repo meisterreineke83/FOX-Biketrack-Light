@@ -103,8 +103,12 @@ class NavViewModel(
             else -> Mode.VIEW
         }
     )
-    /** Bildmitte in Vorschau/Ansicht (ganze Route im Bild). */
+    /** Bildmitte in Vorschau/Ansicht (ganze Route im Bild) bzw. nach Verschieben der Karte. */
     val viewCenter = MutableStateFlow<Pt?>(null)
+    /** Mit GPS: Karte folgt der Position, bis man sie verschiebt. */
+    val following = MutableStateFlow(true)
+    /** Karte wurde von Hand verschoben → Knopf zum Zurückholen zeigen. */
+    val panned = MutableStateFlow(false)
     private var turns: List<Turn> = emptyList()
 
     val route = MutableStateFlow<List<Pt>>(emptyList())
@@ -161,6 +165,7 @@ class NavViewModel(
     /** Startet GPS, sobald die Berechtigung da ist – nur bei freier Fahrt und Navigation. */
     fun startGps() {
         if (gpsJob != null || !mode.value.usesGps) return
+        following.value = true; panned.value = false
         if (mode.value == Mode.FREE_RIDE && track.value.isEmpty()) { resetRecording(); recording.value = true }
         gpsJob = viewModelScope.launch {
             lightOsLocations().collect { onPosition(it) }
@@ -180,6 +185,7 @@ class NavViewModel(
         resetRecording()
         recording.value = true
         zoomM.value = 300.0
+        following.value = true; panned.value = false
         message.value = null
         mode.value = Mode.NAVIGATE // GPS startet über den Screen (Berechtigung)
     }
@@ -193,6 +199,7 @@ class NavViewModel(
         status.value = null
         position.value = null
         fitRoute(route.value)?.let { (c, radius) -> viewCenter.value = c; zoomM.value = radius }
+        panned.value = false
         message.value = saved?.let { "Fahrt gespeichert – wird zu Komoot hochgeladen" }
         mode.value = Mode.PREVIEW
     }
@@ -241,6 +248,21 @@ class NavViewModel(
     fun toggleMap() {
         mapOn.value = !mapOn.value
         viewModelScope.launch { store.setMapEnabled(mapOn.value) }
+    }
+
+    /** Karte mit dem Finger verschoben. */
+    fun pan(center: Pt) {
+        viewCenter.value = center
+        following.value = false
+        panned.value = true
+    }
+
+    /** Zurück: mit GPS zur eigenen Position (folgen), sonst ganze Route zeigen. */
+    fun recenter() {
+        panned.value = false
+        if (mode.value.usesGps && position.value != null) following.value = true
+        else fitRoute(route.value)?.let { (c, radius) -> viewCenter.value = c; zoomM.value = radius }
+            ?: run { following.value = true }
     }
 
     fun zoom(dir: Int) { zoomM.value = (zoomM.value * if (dir > 0) 0.5 else 2.0).coerceIn(75.0, 50_000.0) }
@@ -317,6 +339,8 @@ class NavScreen(
         val autoPaused by viewModel.autoPaused.collectAsState()
         val movingMs by viewModel.movingMs.collectAsState()
         val viewCenter by viewModel.viewCenter.collectAsState()
+        val following by viewModel.following.collectAsState()
+        val panned by viewModel.panned.collectAsState()
         val mapStatus by viewModel.tiles.status.collectAsState()
 
         // GPS-Berechtigung über LightOS prüfen/anfragen, dann starten (nur freie Fahrt / Navigation)
@@ -351,11 +375,12 @@ class NavScreen(
                 Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                     RouteView(
                         route, track, pos,
-                        center = if (mode.usesGps) null else viewCenter,
+                        center = if (mode.usesGps && following) null else viewCenter,
                         headingDeg = heading, radiusM = zoom,
                         content = colors.content, background = colors.background,
                         tiles = if (mapOn) viewModel.tiles else null,
                         dark = colors.background.luminance() < 0.5f,
+                        onPan = { viewModel.pan(it) },
                     )
                     // Zoom als Knöpfe auf der Karte, rechts – passt immer aufs Display
                     Column(
@@ -364,6 +389,8 @@ class NavScreen(
                     ) {
                         ZoomButton(plus = true, colors.content, colors.background) { viewModel.zoom(+1) }
                         ZoomButton(plus = false, colors.content, colors.background) { viewModel.zoom(-1) }
+                        // Nach dem Verschieben: zurück zur Position bzw. ganzen Route
+                        if (panned) CenterButton(colors.content, colors.background) { viewModel.recenter() }
                     }
                     if (mapOn) LightText(
                         mapStatus ?: MAP_ATTRIBUTION, LightTextVariant.Micro, lighten = mapStatus == null,
@@ -414,6 +441,28 @@ class NavScreen(
             val w = size.minDimension * 0.08f
             drawLine(content, Offset(c.x - arm, c.y), Offset(c.x + arm, c.y), strokeWidth = w)
             if (plus) drawLine(content, Offset(c.x, c.y - arm), Offset(c.x, c.y + arm), strokeWidth = w)
+        }
+    }
+
+    @Composable
+    private fun CenterButton(content: Color, background: Color, onClick: () -> Unit) {
+        // Zielkreuz: Kreis mit Punkt und kurzen Strichen
+        Canvas(
+            Modifier.size(56.dp)
+                .background(background)
+                .border(2.dp, content)
+                .lightClickable(onClick = onClick)
+        ) {
+            val c = center
+            val r = size.minDimension * 0.22f
+            val w = size.minDimension * 0.07f
+            drawCircle(content, r, c, style = androidx.compose.ui.graphics.drawscope.Stroke(width = w))
+            drawCircle(content, w, c)
+            val o = size.minDimension * 0.36f
+            drawLine(content, Offset(c.x, c.y - o), Offset(c.x, c.y - r), strokeWidth = w)
+            drawLine(content, Offset(c.x, c.y + r), Offset(c.x, c.y + o), strokeWidth = w)
+            drawLine(content, Offset(c.x - o, c.y), Offset(c.x - r, c.y), strokeWidth = w)
+            drawLine(content, Offset(c.x + r, c.y), Offset(c.x + o, c.y), strokeWidth = w)
         }
     }
 

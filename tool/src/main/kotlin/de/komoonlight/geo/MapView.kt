@@ -1,12 +1,14 @@
 package de.komoonlight.geo
 
 import kotlin.math.PI
+import kotlin.math.atan
 import kotlin.math.cos
 import kotlin.math.floor
 import kotlin.math.ln
 import kotlin.math.log2
 import kotlin.math.pow
 import kotlin.math.roundToInt
+import kotlin.math.sinh
 import kotlin.math.tan
 
 /** Web-Mercator wie bei OpenStreetMap (256-px-Kacheln). */
@@ -20,6 +22,12 @@ object WebMercator {
         val r = lat.coerceIn(-85.0511, 85.0511) * PI / 180
         return (1 - ln(tan(r) + 1 / cos(r)) / PI) / 2 * 2.0.pow(z) * TILE
     }
+
+    /** Umkehrung von [worldX]. */
+    fun lon(worldX: Double, z: Int) = worldX / (2.0.pow(z) * TILE) * 360.0 - 180.0
+
+    /** Umkehrung von [worldY]. */
+    fun lat(worldY: Double, z: Int) = atan(sinh(PI * (1 - 2 * worldY / (2.0.pow(z) * TILE)))) * 180 / PI
 
     /** Meter pro Kachelpixel bei Zoom [z] an Breite [lat]. */
     fun mpp(lat: Double, z: Int) = EARTH_MPP_Z0 * cos(lat * PI / 180) / 2.0.pow(z)
@@ -61,6 +69,15 @@ class MapView(
 
     fun x(p: Pt) = ((WebMercator.worldX(p.lon, zoom) - cx) * scale + width / 2).toFloat()
     fun y(p: Pt) = ((WebMercator.worldY(p.lat, zoom) - cy) * scale + height / 2).toFloat()
+
+    /**
+     * Neue Bildmitte, wenn die Karte um [dx]/[dy] Bildschirmpixel mit dem Finger verschoben wird
+     * (Inhalt wandert mit dem Finger, die Mitte also entgegengesetzt).
+     */
+    fun panned(dx: Float, dy: Float) = Pt(
+        WebMercator.lat(cy - dy / scale, zoom).coerceIn(-85.0, 85.0),
+        WebMercator.lon(cx - dx / scale, zoom).let { ((it + 540.0) % 360.0) - 180.0 },
+    )
 
     /** Alle Kacheln, die den Bildschirm berühren. */
     fun tiles(): List<TileDraw> {

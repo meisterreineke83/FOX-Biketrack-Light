@@ -1,10 +1,12 @@
 package de.komoonlight.ui
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
@@ -16,6 +18,7 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import de.komoonlight.geo.MapView
@@ -42,15 +45,39 @@ fun RouteView(
     tiles: TileStore?,
     /** Dunkles Theme → Karte etwas abgedunkelt, damit sie nachts nicht blendet. */
     dark: Boolean,
+    /** Karte mit dem Finger verschoben → neue Bildmitte. null = nicht verschiebbar. */
+    onPan: ((Pt) -> Unit)? = null,
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     // Neu zeichnen, sobald eine Kachel nachgeladen wurde
     val tileVersion = tiles?.version?.collectAsState()?.value ?: 0
 
+    val mid = center ?: position ?: route.firstOrNull()
+    // Für die Geste immer die aktuellen Werte, ohne sie bei jeder Änderung neu zu starten
+    val curMid by rememberUpdatedState(mid)
+    val curRadius by rememberUpdatedState(radiusM)
+    val curOnPan by rememberUpdatedState(onPan)
+
+    val drag = if (onPan == null) Modifier else Modifier.pointerInput(Unit) {
+        // Gesamtweg seit Fingeraufsetzen von der Startmitte aus rechnen – sonst ruckelt es,
+        // wenn mehrere Bewegungen kommen, bevor die neue Mitte zurück ist.
+        var start: Pt? = null
+        var total = Offset.Zero
+        detectDragGestures(
+            onDragStart = { start = curMid; total = Offset.Zero },
+        ) { change, amount ->
+            change.consume()
+            val s = start ?: return@detectDragGestures
+            total += amount
+            val map = MapView(s, curRadius, size.width.toFloat(), size.height.toFloat())
+            curOnPan?.invoke(map.panned(total.x, total.y))
+        }
+    }
+
     // clipToBounds: Kacheln am Rand dürfen nicht über Kopfzeile und Knöpfe malen
-    Canvas(modifier.clipToBounds()) {
+    Canvas(modifier.clipToBounds().then(drag)) {
         tileVersion // im Zeichenblock gelesen → Invalidierung
-        val mid = center ?: position ?: route.firstOrNull() ?: return@Canvas
+        if (mid == null) return@Canvas
         val map = MapView(mid, radiusM, size.width, size.height)
         val filter = grayscale(dark)
         fun o(p: Pt) = Offset(map.x(p), map.y(p))

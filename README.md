@@ -26,6 +26,7 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
   - gefahrene Tour: nur ansehen – ohne Aufnahme- und Ton-Knopf
 - **Karte im Hintergrund** (OpenStreetMap in Graustufen, doppelt groß für das dichte Display),
   darüber Route, eigener Weg gepunktet und Pfeil in Fahrtrichtung; + / − rechts auf der Karte,
+  Karte mit dem Finger verschiebbar (Zielkreuz holt sie zurück zur Position bzw. ganzen Route),
   „Karte“ schaltet sie ab. Kacheln entlang der Route werden vorab geladen (< 250, gemäß OSM-Regeln)
   und 60 Tage zwischengespeichert → auch ohne Netz. Lädt die Karte nicht, steht der Grund unten links.
 - Nächste Abbiegung groß ab 300 m („→ 120 m rechts, Hauptstraße“), sonst Rest-km

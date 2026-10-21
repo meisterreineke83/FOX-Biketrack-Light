@@ -77,4 +77,21 @@ class MapViewTest {
         }
         assertEquals(null, fitRoute(emptyList()))
     }
+
+    @Test
+    fun panMovesCenterOppositeToFinger() {
+        val v = MapView(berlin, 300.0, 1000f, 1000f)
+        assertEquals(berlin.lat, v.panned(0f, 0f).lat, 1e-9)
+        assertEquals(berlin.lon, v.panned(0f, 0f).lon, 1e-9)
+        // Finger nach links → Inhalt nach links → Mitte rückt nach Osten
+        val c = v.panned(-500f, 0f)
+        assertTrue(c.lon > berlin.lon)
+        // 500 px = Radius → neue Mitte ≈ 300 m weiter
+        assertTrue(abs(Geo.dist(berlin, c) - 300) < 10, "${Geo.dist(berlin, c)}")
+        // Finger nach unten → Mitte rückt nach Norden; der alte Mittelpunkt liegt dann 200 px tiefer
+        val n = v.panned(0f, 200f)
+        assertTrue(n.lat > berlin.lat)
+        val moved = MapView(n, 300.0, 1000f, 1000f)
+        assertTrue(abs(moved.y(berlin) - 700f) < 1f, "${moved.y(berlin)}")
+    }
 }
