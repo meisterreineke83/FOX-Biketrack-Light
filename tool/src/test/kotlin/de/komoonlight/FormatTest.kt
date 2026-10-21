@@ -43,4 +43,22 @@ class FormatTest {
             pendingUploads(files, setOf("2026-10-19_10-00.gpx")),
         )
     }
+
+    @Test
+    fun namesHikesAndRides() {
+        assertEquals("Wanderung 21.10.2026, 17:45", uploadName("2026-10-21_17-45_hike.gpx"))
+        assertEquals("Radtour 21.10.2026, 17:45", uploadName("2026-10-21_17-45_bike.gpx"))
+        assertEquals(Activity.HIKE, Activity.fromFileName("2026-10-21_17-45_hike.gpx"))
+        assertEquals(Activity.BIKE, Activity.fromFileName("2026-10-21_17-45.gpx")) // alte Dateien
+        assertEquals("hike", Activity.fromFileName("x_hike.gpx").komootSport)
+    }
+
+    @Test
+    fun mapsKomootSports() {
+        assertEquals(Activity.HIKE, Activity.fromKomootSport("hike"))
+        assertEquals(Activity.HIKE, Activity.fromKomootSport("mountaineering"))
+        assertEquals(Activity.BIKE, Activity.fromKomootSport("touringbicycle"))
+        assertEquals(Activity.BIKE, Activity.fromKomootSport("mtb"))
+        assertEquals(Activity.BIKE, Activity.fromKomootSport(null))
+    }
 }

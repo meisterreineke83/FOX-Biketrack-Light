@@ -86,6 +86,8 @@ data class TourRef(
 /** [ref] = null → freie Fahrt: keine Route, Aufzeichnung startet sofort mit dem ersten GPS-Fix. */
 class NavViewModel(
     private val ref: TourRef?,
+    /** Bei geplanten Touren aus Komoots Sportart, sonst die gewählte. */
+    val activity: Activity,
     private val fileShare: LightFileShare,
     private val vibrator: LightVibrator,
     private val voice: VoiceAnnouncer,
@@ -109,14 +111,14 @@ class NavViewModel(
     val position = MutableStateFlow<Pt?>(null)
     val status = MutableStateFlow<NavStatus?>(null)
     val message = MutableStateFlow<String?>(if (ref != null) "Lade Route…" else null)
-    private val title = ref?.tour?.name ?: "Freie Fahrt"
+    private val title = ref?.tour?.name ?: activity.tourName
     val zoomM = MutableStateFlow(300.0)
 
     val recording = MutableStateFlow(false)
     val track = MutableStateFlow<List<Pt>>(emptyList())
     val trackDistanceM = MutableStateFlow(0.0)
     /** Steht man 5 s still, pausiert die Aufzeichnung von selbst. */
-    private val autoPause = AutoPause()
+    private val autoPause = AutoPause(radiusM = activity.pauseRadiusM)
     val autoPaused = MutableStateFlow(false)
     val movingMs = MutableStateFlow(0L)
     val voiceOn = MutableStateFlow(true)
@@ -264,8 +266,10 @@ class NavViewModel(
         val t = track.value
         if (t.size < 2) return null
         val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm"))
-        val file = "$stamp.gpx"
-        fileShare.write("$TRACKS_DIR/$file") { Gpx.write(it, "$title ($stamp)", t) }
+        val file = "${stamp}_${activity.key}.gpx" // Kennung → richtige Sportart beim Upload
+        fileShare.write("$TRACKS_DIR/$file") {
+            Gpx.write(it, "$title ($stamp)", t, type = if (activity == Activity.HIKE) "hiking" else "cycling")
+        }
         return file
     }
 
@@ -279,12 +283,15 @@ class NavViewModel(
 class NavScreen(
     private val sealedActivity: SealedLightActivity,
     private val ref: TourRef?,
+    /** Für Aufzeichnungen ohne Route; bei Touren gilt deren Sportart. */
+    private val freeActivity: Activity = Activity.BIKE,
 ) : LightScreen<Unit, NavViewModel>(sealedActivity) {
 
     override val viewModelClass: Class<NavViewModel> get() = NavViewModel::class.java
     override fun createViewModel() =
         NavViewModel(
-            ref, lightContext.fileShare, sealedActivity.vibrator,
+            ref, ref?.let { Activity.fromKomootSport(it.tour.sport) } ?: freeActivity,
+            lightContext.fileShare, sealedActivity.vibrator,
             VoiceAnnouncer(DefaultLightAudio(sealedActivity)), Store(lightContext.dataStore),
             TileStore(lightContext.filesDir, "FOX-Biketrack-Light (Light Phone III; github.com/meisterreineke83/FOX-Biketrack-Light)"),
         )
@@ -328,7 +335,7 @@ class NavScreen(
                 LightTopBar(
                     leftButton = LightBarButton.LightIcon(icon = LightIcons.BACK, onClick = { goBack() }),
                     // Langer Tourname kollidiert sonst mit „Ton an“ → steht unten im Kopf
-                    center = if (ref == null) LightTopBarCenter.Text("Freie Fahrt") else null,
+                    center = if (ref == null) LightTopBarCenter.Text(viewModel.activity.tourName) else null,
                     // Ton nur, wo es Ansagen gibt
                     rightButton = if (mode == Mode.PREVIEW || mode == Mode.NAVIGATE)
                         LightBarButton.Text(if (voiceOn) "Ton an" else "Stumm", onClick = { viewModel.toggleVoice() })

@@ -9,11 +9,12 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.8)
+## Funktionen (v0.9)
 
-- **Einfach losfahren**: ohne Route sofort aufzeichnen – Kilometer, Fahrzeit, Ø-Tempo
-  (geht auch ohne Komoot-Anmeldung)
-- **Auto-Pause**: 5 s Stillstand (< 10 m) pausiert die Aufzeichnung, weiterfahren setzt sie fort;
+- **Rad oder Wandern**: ohne Route sofort aufzeichnen – Kilometer, Zeit, Ø-Tempo
+  (geht auch ohne Komoot-Anmeldung). Bei geplanten Touren gilt die in Komoot geplante Sportart.
+  Bestimmt Name („Radtour …“ / „Wanderung …“) und Sportart beim Upload.
+- **Auto-Pause**: 5 s Stillstand (< 10 m Rad, < 4 m zu Fuß) pausiert die Aufzeichnung, weiterfahren setzt sie fort;
   Fahrzeit und Ø-Tempo zählen nur die Bewegung
 - Anmeldung mit Komoot-E-Mail + Passwort – gespeichert wird nur der Token
 - Touren getrennt nach **Geplant** und **Gefahren**, mit Datum und Länge

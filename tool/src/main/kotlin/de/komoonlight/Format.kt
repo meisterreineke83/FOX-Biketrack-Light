@@ -21,11 +21,12 @@ fun formatDuration(ms: Long): String {
     return "%d:%02d h".format(min / 60, min % 60)
 }
 
-/** "2026-10-21_17-45.gpx" → "Radtour 21.10.2026, 17:45" (Name der Fahrt bei Komoot) */
+/** "2026-10-21_17-45_hike.gpx" → "Wanderung 21.10.2026, 17:45" (Name der Aufzeichnung bei Komoot) */
 fun uploadName(fileName: String): String {
-    val m = Regex("""(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})""").find(fileName) ?: return "Radtour"
+    val what = Activity.fromFileName(fileName).tourName
+    val m = Regex("""(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})""").find(fileName) ?: return what
     val (y, mo, d, h, mi) = m.destructured
-    return "Radtour $d.$mo.$y, $h:$mi"
+    return "$what $d.$mo.$y, $h:$mi"
 }
 
 /** Aufzeichnungen, die noch hochgeladen werden müssen – älteste zuerst. */

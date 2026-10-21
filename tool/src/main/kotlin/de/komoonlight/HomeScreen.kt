@@ -1,6 +1,7 @@
 package de.komoonlight
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -92,7 +93,7 @@ class HomeViewModel(
                 syncStatus.value = "Lade Fahrt hoch… (${done + 1}/${pending.size})"
                 val gpx = fileShare.read("$TRACKS_DIR/$f") { it.readText() } ?: continue
                 try {
-                    client.uploadRecorded(s, gpx, uploadName(f))
+                    client.uploadRecorded(s, gpx, uploadName(f), Activity.fromFileName(f).komootSport)
                     store.markUploaded(f)
                     done++
                 } catch (e: KomootClient.AuthException) {
@@ -180,14 +181,16 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
                     modifier = Modifier.padding(bottom = 1f.gridUnitsAsDp()),
                 )
                 Column(Modifier.fillMaxSize().padding(horizontal = 1f.gridUnitsAsDp())) {
-                    // Freie Fahrt geht immer – auch ohne Komoot-Anmeldung
-                    LightText(
-                        "▶ Einfach losfahren", LightTextVariant.Heading,
-                        modifier = Modifier.fillMaxWidth()
-                            .lightClickable { navigateTo<Unit>({ NavScreen(it, null) }) }
-                            .padding(vertical = 12.dp),
-                    )
-                    LightText("Ohne Route – wird danach bei Komoot gespeichert", LightTextVariant.Detail, lighten = true,
+                    // Aufzeichnen ohne Route geht immer – auch ohne Komoot-Anmeldung
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(32.dp)) {
+                        for (a in Activity.entries) LightText(
+                            "▶ ${a.label}", LightTextVariant.Heading,
+                            modifier = Modifier
+                                .lightClickable { navigateTo<Unit>({ NavScreen(it, null, a) }) }
+                                .padding(vertical = 12.dp),
+                        )
+                    }
+                    LightText("Ohne Route aufzeichnen – wird danach bei Komoot gespeichert", LightTextVariant.Detail, lighten = true,
                         modifier = Modifier.padding(bottom = if (sync == null) 24.dp else 8.dp))
                     sync?.let {
                         LightText(it, LightTextVariant.Detail,
