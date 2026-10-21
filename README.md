@@ -9,7 +9,7 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.6)
+## Funktionen (v0.7)
 
 - **Einfach losfahren**: ohne Route sofort aufzeichnen – Kilometer, Fahrzeit, Ø-Tempo
   (geht auch ohne Komoot-Anmeldung)
@@ -18,10 +18,10 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
   - geplante Tour: Vorschau der ganzen Route, Navigation erst mit **„Route starten“**,
     „Beenden“ speichert die Fahrt (→ Komoot)
   - gefahrene Tour: nur ansehen – ohne Aufnahme- und Ton-Knopf
-- **Karte im Hintergrund** (OpenStreetMap, Stil CARTO „Dark Matter“ bzw. „Positron“ im hellen Theme),
-  darüber Route, eigener Weg gepunktet und Pfeil in Fahrtrichtung; Zoom, „Karte“ schaltet sie ab.
-  Kacheln entlang der Route werden vorab geladen und 60 Tage zwischengespeichert → auch ohne Netz.
-  Kontrast wird fürs Graustufen-Display angehoben; lädt die Karte nicht, steht der Grund unten links.
+- **Karte im Hintergrund** (OpenStreetMap in Graustufen, doppelt groß für das dichte Display),
+  darüber Route, eigener Weg gepunktet und Pfeil in Fahrtrichtung; + / − rechts auf der Karte,
+  „Karte“ schaltet sie ab. Kacheln entlang der Route werden vorab geladen (< 250, gemäß OSM-Regeln)
+  und 60 Tage zwischengespeichert → auch ohne Netz. Lädt die Karte nicht, steht der Grund unten links.
 - Nächste Abbiegung groß ab 300 m („→ 120 m rechts, Hauptstraße“), sonst Rest-km
 - **Sprachansagen** auf Deutsch: „In zweihundert Metern rechts abbiegen“, „Jetzt rechts abbiegen“,
   „Du hast die Route verlassen“, „Du hast dein Ziel erreicht“ – oben rechts „Ton an / Stumm“
@@ -63,8 +63,9 @@ lokal erhalten. Sportart ändern: Parameter `sport` (z. B. `racebike`, `mtb`, `e
 
 ## Karte
 
-Kartendaten © [OpenStreetMap-Mitwirkende](https://www.openstreetmap.org/copyright), Kacheln von
-[CARTO](https://carto.com/attributions) (Basemaps, frei für nicht-kommerzielle Nutzung mit Namensnennung).
+Kartendaten und Kacheln © [OpenStreetMap-Mitwirkende](https://www.openstreetmap.org/copyright),
+geladen von `tile.openstreetmap.org` gemäß [Tile Usage Policy](https://operations.osmfoundation.org/policies/tiles/)
+(eigener User-Agent, Zwischenspeicher, kein Massen-Download). CARTO-Kacheln brauchen inzwischen einen API-Schlüssel.
 Eine Kartenbibliothek wie osmdroid erlaubt das Light-SDK nicht – die Kacheln werden deshalb selbst
 gezeichnet (`TileStore` + `RouteView`), mit höchstens zwei gleichzeitigen Downloads.
 

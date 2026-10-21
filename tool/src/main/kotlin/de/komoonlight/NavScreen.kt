@@ -19,6 +19,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.foundation.layout.size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
@@ -58,7 +61,6 @@ import de.komoonlight.nav.VoicePrompts
 import de.komoonlight.geo.fitRoute
 import de.komoonlight.geo.tilesAlong
 import de.komoonlight.map.MAP_ATTRIBUTION
-import de.komoonlight.map.MapStyle
 import de.komoonlight.map.TileStore
 import de.komoonlight.ui.RouteView
 import kotlinx.coroutines.Job
@@ -134,7 +136,8 @@ class NavViewModel(
                 message.value = null
                 if (ref.tour.planned) {
                     // Kartenkacheln entlang der Route vorab laden → Karte auch ohne Netz
-                    if (mapOn.value) tiles.prefetch(currentMapStyle(), tilesAlong(r.points, listOf(15, 16), limit = 400))
+                    // OSM-Regeln: vorab weniger als 250 Kacheln ab Zoom 13
+                    if (mapOn.value) tiles.prefetch(tilesAlong(r.points, listOf(14, 15), limit = 200))
                     if (Navigator(r.points, r.turns).turns.isEmpty()) message.value = "Ohne Abbiegehinweise"
                 }
             } catch (e: KomootClient.AuthException) {
@@ -304,7 +307,8 @@ class NavScreen(
             Column(Modifier.fillMaxSize().background(colors.background)) {
                 LightTopBar(
                     leftButton = LightBarButton.LightIcon(icon = LightIcons.BACK, onClick = { goBack() }),
-                    center = LightTopBarCenter.Text(ref?.tour?.name ?: "Freie Fahrt"),
+                    // Langer Tourname kollidiert sonst mit „Ton an“ → steht unten im Kopf
+                    center = if (ref == null) LightTopBarCenter.Text("Freie Fahrt") else null,
                     // Ton nur, wo es Ansagen gibt
                     rightButton = if (mode == Mode.PREVIEW || mode == Mode.NAVIGATE)
                         LightBarButton.Text(if (voiceOn) "Ton an" else "Stumm", onClick = { viewModel.toggleVoice() })
@@ -317,15 +321,23 @@ class NavScreen(
                     Mode.PREVIEW, Mode.VIEW -> TourHeader(message)
                 }
 
-                Box(Modifier.weight(1f).fillMaxWidth()) {
+                Box(Modifier.weight(1f).fillMaxWidth().clipToBounds()) {
                     RouteView(
                         route, track, pos,
                         center = if (mode.usesGps) null else viewCenter,
                         headingDeg = heading, radiusM = zoom,
                         content = colors.content, background = colors.background,
                         tiles = if (mapOn) viewModel.tiles else null,
-                        mapStyle = styleFor(colors.background),
+                        dark = colors.background.luminance() < 0.5f,
                     )
+                    // Zoom als Knöpfe auf der Karte, rechts – passt immer aufs Display
+                    Column(
+                        Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        ZoomButton("+", colors.background) { viewModel.zoom(+1) }
+                        ZoomButton("−", colors.background) { viewModel.zoom(-1) }
+                    }
                     if (mapOn) LightText(
                         mapStatus ?: MAP_ATTRIBUTION, LightTextVariant.Micro, lighten = mapStatus == null,
                         modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
@@ -337,7 +349,6 @@ class NavScreen(
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    LightText("−", LightTextVariant.Title, modifier = Modifier.lightClickable { viewModel.zoom(-1) }.padding(8.dp))
                     LightText(
                         if (mapOn) "Karte" else "Karte aus", LightTextVariant.Button, lighten = !mapOn,
                         modifier = Modifier.lightClickable { viewModel.toggleMap() }.padding(8.dp),
@@ -357,10 +368,17 @@ class NavScreen(
                         )
                         Mode.VIEW -> Unit // gefahrene Tour: nur ansehen
                     }
-                    LightText("+", LightTextVariant.Title, modifier = Modifier.lightClickable { viewModel.zoom(+1) }.padding(8.dp))
                 }
             }
         }
+    }
+
+    @Composable
+    private fun ZoomButton(label: String, background: Color, onClick: () -> Unit) {
+        Box(
+            Modifier.size(56.dp).background(background).lightClickable(onClick = onClick),
+            contentAlignment = Alignment.Center,
+        ) { LightText(label, LightTextVariant.Title) }
     }
 
     /** Vorschau einer geplanten bzw. Ansicht einer gefahrenen Tour. */
@@ -368,6 +386,7 @@ class NavScreen(
     private fun TourHeader(message: String?) {
         val t = ref?.tour ?: return
         Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp)) {
+            LightText(t.name, LightTextVariant.Subheading, maxLines = 2, overflow = TextOverflow.Ellipsis)
             LightText("%.1f km".format(t.distanceM / 1000), LightTextVariant.Heading)
             LightText(
                 listOfNotNull(formatDate(t.date), if (t.planned) "geplant" else "gefahren").joinToString(" · "),
@@ -423,11 +442,6 @@ class NavScreen(
     }
 }
 
-/** Dunkles Theme → dunkle Karte, helles Theme → helle Karte. */
-private fun styleFor(background: Color): MapStyle =
-    if (background.luminance() < 0.5f) MapStyle.DARK else MapStyle.LIGHT
-
-private fun currentMapStyle(): MapStyle = styleFor(LightThemeController.colors.value.background)
 
 /** Zustände des Navigationsscreens. */
 enum class Mode(val usesGps: Boolean) {

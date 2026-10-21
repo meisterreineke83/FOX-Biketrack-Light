@@ -24,17 +24,14 @@ import kotlinx.coroutines.sync.withPermit
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 
-/** Kartenstil von CARTO (OpenStreetMap-Daten). Dark Matter passt zum schwarzen Light-Display. */
-enum class MapStyle(val path: String) {
-    DARK("dark_all"), LIGHT("light_all");
+/**
+ * Standard-Kacheln von openstreetmap.org – ohne API-Schlüssel.
+ * Nutzungsregeln: eindeutiger User-Agent, Kacheln zwischenspeichern, kein Massen-Download
+ * (vorab höchstens < 250 Kacheln ab Zoom 13) → https://operations.osmfoundation.org/policies/tiles/
+ */
+private fun osmUrl(z: Int, x: Int, y: Int) = "https://tile.openstreetmap.org/$z/$x/$y.png"
 
-    fun url(z: Int, x: Int, y: Int): String {
-        val sub = "abcd"[Math.floorMod(x + y, 4)]
-        return "https://$sub.basemaps.cartocdn.com/$path/$z/$x/$y@2x.png"
-    }
-}
-
-const val MAP_ATTRIBUTION = "© OpenStreetMap-Mitwirkende © CARTO"
+const val MAP_ATTRIBUTION = "© OpenStreetMap-Mitwirkende"
 
 /**
  * Lädt Kartenkacheln, hält sie auf der Platte (für unterwegs ohne Netz) und im Speicher.
@@ -42,16 +39,17 @@ const val MAP_ATTRIBUTION = "© OpenStreetMap-Mitwirkende © CARTO"
  */
 class TileStore(filesDir: File, private val userAgent: String) {
 
-    private val dir = File(filesDir, "tiles")
+    private val root = File(filesDir, "tiles")
+    private val dir = File(root, "osm")
     private val http = HttpClient(OkHttp)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-    private val net = Semaphore(2)      // sichtbare Kacheln – höflich zum Kachelserver
+    private val net = Semaphore(2)        // sichtbare Kacheln – höflich zum Kachelserver
     private val background = Semaphore(1) // Vorab-Laden, damit es sichtbare Kacheln nicht ausbremst
     private val inflight = ConcurrentHashMap.newKeySet<String>()
     private val failed = ConcurrentHashMap.newKeySet<String>()
 
-    // RGB_565 → ~0,5 MB pro 512er-Kachel
-    private val mem = LruCache<String, ImageBitmap>(48)
+    // 256er-Kachel in RGB_565 ≈ 128 KB
+    private val mem = LruCache<String, ImageBitmap>(96)
 
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version
@@ -61,17 +59,21 @@ class TileStore(filesDir: File, private val userAgent: String) {
     val status: StateFlow<String?> = _status
 
     init {
-        scope.launch { cleanup(maxAgeDays = 60) }
+        scope.launch {
+            // Alte CARTO-Kacheln (v0.5/0.6) enthalten nur „API KEY REQUIRED“ → weg damit
+            listOf("dark_all", "light_all").forEach { File(root, it).deleteRecursively() }
+            cleanup(maxAgeDays = 60)
+        }
     }
 
     /** Kachel aus dem Speicher – oder null und im Hintergrund laden. */
-    fun get(style: MapStyle, z: Int, x: Int, y: Int): ImageBitmap? {
-        val key = key(style, z, x, y)
+    fun get(z: Int, x: Int, y: Int): ImageBitmap? {
+        val key = "$z/$x/$y"
         mem.get(key)?.let { return it }
         if (key !in failed && inflight.add(key)) {
             scope.launch {
                 try {
-                    val bytes = load(style, z, x, y) ?: return@launch
+                    val bytes = load(z, x, y) ?: return@launch
                     val img = decode(bytes)
                     if (img == null) _status.value = "Karte: Kachel unlesbar"
                     else { mem.put(key, img); _status.value = null; _version.value++ }
@@ -84,10 +86,10 @@ class TileStore(filesDir: File, private val userAgent: String) {
     }
 
     /** Kacheln vorab auf die Platte laden (z. B. entlang der Route). */
-    fun prefetch(style: MapStyle, tiles: List<Triple<Int, Int, Int>>) {
+    fun prefetch(tiles: List<Triple<Int, Int, Int>>) {
         scope.launch {
             for ((z, x, y) in tiles) {
-                if (!File(dir, "${style.path}/$z/$x/$y.png").isFile) load(style, z, x, y, background)
+                if (!file(z, x, y).isFile) load(z, x, y, background)
             }
         }
     }
@@ -97,14 +99,16 @@ class TileStore(filesDir: File, private val userAgent: String) {
         http.close()
     }
 
-    private suspend fun load(style: MapStyle, z: Int, x: Int, y: Int, sem: Semaphore = net): ByteArray? {
-        val file = File(dir, "${style.path}/$z/$x/$y.png")
+    private fun file(z: Int, x: Int, y: Int) = File(dir, "$z/$x/$y.png")
+
+    private suspend fun load(z: Int, x: Int, y: Int, sem: Semaphore = net): ByteArray? {
+        val file = file(z, x, y)
         if (file.isFile && file.length() > 0) return file.readBytes()
         return sem.withPermit {
             runCatching {
-                val res = http.get(style.url(z, x, y)) { header(HttpHeaders.UserAgent, userAgent) }
+                val res = http.get(osmUrl(z, x, y)) { header(HttpHeaders.UserAgent, userAgent) }
                 if (!res.status.isSuccess()) {
-                    if (res.status.value == 404) failed += key(style, z, x, y)
+                    if (res.status.value == 404) failed += "$z/$x/$y"
                     if (sem === net) _status.value = "Karte: Server-Fehler ${res.status.value}"
                     return@runCatching null
                 }
@@ -127,6 +131,4 @@ class TileStore(filesDir: File, private val userAgent: String) {
         val cutoff = System.currentTimeMillis() - maxAgeDays * 86_400_000L
         dir.walkBottomUp().forEach { f -> if (f.isFile && f.lastModified() < cutoff) f.delete() }
     }
-
-    private fun key(style: MapStyle, z: Int, x: Int, y: Int) = "${style.path}/$z/$x/$y"
 }

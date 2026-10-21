@@ -9,10 +9,10 @@ import kotlin.math.pow
 import kotlin.math.roundToInt
 import kotlin.math.tan
 
-/** Web-Mercator wie bei OpenStreetMap, mit 512-px-Kacheln (@2x, scharf auf dem Light-Display). */
+/** Web-Mercator wie bei OpenStreetMap (256-px-Kacheln). */
 object WebMercator {
-    const val TILE = 512
-    private const val EARTH_MPP_Z0 = 156_543.03392 // Meter pro Pixel bei Zoom 0, 256er-Kachel, Äquator
+    const val TILE = 256
+    private const val EARTH_MPP_Z0 = 156_543.03392 // Meter pro Kachelpixel bei Zoom 0 am Äquator
 
     fun worldX(lon: Double, z: Int) = (lon + 180.0) / 360.0 * 2.0.pow(z) * TILE
 
@@ -21,8 +21,8 @@ object WebMercator {
         return (1 - ln(tan(r) + 1 / cos(r)) / PI) / 2 * 2.0.pow(z) * TILE
     }
 
-    /** Meter pro Kachel-Pixel bei Zoom [z] an Breite [lat]. */
-    fun mpp(lat: Double, z: Int) = EARTH_MPP_Z0 * cos(lat * PI / 180) / 2.0.pow(z) / (TILE / 256)
+    /** Meter pro Kachelpixel bei Zoom [z] an Breite [lat]. */
+    fun mpp(lat: Double, z: Int) = EARTH_MPP_Z0 * cos(lat * PI / 180) / 2.0.pow(z)
 
     /** Kachel (x, y), in der ein Punkt liegt. */
     fun tileOf(p: Pt, z: Int) = Pair(
@@ -30,9 +30,9 @@ object WebMercator {
         floor(worldY(p.lat, z) / TILE).toInt(),
     )
 
-    /** Ganzzahliger Zoom, dessen Kacheln bei [mppScreen] Meter/Bildschirmpixel am schärfsten sind. */
-    fun zoomFor(lat: Double, mppScreen: Double, min: Int = 2, max: Int = 19): Int =
-        log2(EARTH_MPP_Z0 * cos(lat * PI / 180) / (TILE / 256) / mppScreen).roundToInt().coerceIn(min, max)
+    /** Ganzzahliger Zoom, bei dem ein Kachelpixel etwa [mppTilePx] Metern entspricht. */
+    fun zoomFor(lat: Double, mppTilePx: Double, min: Int = 2, max: Int = 19): Int =
+        log2(EARTH_MPP_Z0 * cos(lat * PI / 180) / mppTilePx).roundToInt().coerceIn(min, max)
 }
 
 /** Eine Kachel und wo sie auf dem Bildschirm hingehört. */
@@ -41,11 +41,20 @@ data class TileDraw(val z: Int, val x: Int, val y: Int, val left: Float, val top
 /**
  * Bildschirmausschnitt um [center]: [radiusM] Meter vom Zentrum bis zum kürzeren Rand.
  * Route, Track und Kacheln nutzen dieselbe Projektion, damit alles deckungsgleich liegt.
+ *
+ * [screenPxPerTilePx]: OSM-Kacheln sind für normale Bildschirme gemacht; auf dem dichten
+ * Light-Display wären Schrift und Straßen winzig. Mit 2 wird jede Kachel doppelt groß gezeichnet.
  */
-class MapView(center: Pt, radiusM: Double, private val width: Float, private val height: Float) {
+class MapView(
+    center: Pt,
+    radiusM: Double,
+    private val width: Float,
+    private val height: Float,
+    screenPxPerTilePx: Double = 2.0,
+) {
     private val mppScreen = radiusM / (minOf(width, height) / 2.0)
-    val zoom = WebMercator.zoomFor(center.lat, mppScreen)
-    /** Bildschirmpixel pro Kachelpixel. */
+    val zoom = WebMercator.zoomFor(center.lat, mppScreen * screenPxPerTilePx)
+    /** Bildschirmpixel pro Kachelpixel (nahe [screenPxPerTilePx], exakt passend zum Radius). */
     private val scale = WebMercator.mpp(center.lat, zoom) / mppScreen
     private val cx = WebMercator.worldX(center.lon, zoom)
     private val cy = WebMercator.worldY(center.lat, zoom)
@@ -75,7 +84,7 @@ class MapView(center: Pt, radiusM: Double, private val width: Float, private val
     }
 }
 
-/** Kacheln entlang einer Route (für Offline-Nutzung), höchstens [limit] Stück. */
+/** Kacheln entlang einer Route (für unterwegs ohne Netz), höchstens [limit] Stück. */
 fun tilesAlong(route: List<Pt>, zooms: List<Int>, limit: Int): List<Triple<Int, Int, Int>> {
     val out = LinkedHashSet<Triple<Int, Int, Int>>()
     for (z in zooms) for (p in route) {

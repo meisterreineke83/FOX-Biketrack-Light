@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
@@ -19,7 +20,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import de.komoonlight.geo.MapView
 import de.komoonlight.geo.Pt
-import de.komoonlight.map.MapStyle
 import de.komoonlight.map.TileStore
 import kotlin.math.roundToInt
 
@@ -40,23 +40,25 @@ fun RouteView(
     content: Color,
     background: Color,
     tiles: TileStore?,
-    mapStyle: MapStyle,
+    /** Dunkles Theme → Karte etwas abgedunkelt, damit sie nachts nicht blendet. */
+    dark: Boolean,
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
     // Neu zeichnen, sobald eine Kachel nachgeladen wurde
     val tileVersion = tiles?.version?.collectAsState()?.value ?: 0
 
-    Canvas(modifier) {
+    // clipToBounds: Kacheln am Rand dürfen nicht über Kopfzeile und Knöpfe malen
+    Canvas(modifier.clipToBounds()) {
         tileVersion // im Zeichenblock gelesen → Invalidierung
         val mid = center ?: position ?: route.firstOrNull() ?: return@Canvas
         val map = MapView(mid, radiusM, size.width, size.height)
-        val filter = contrastFor(mapStyle)
+        val filter = grayscale(dark)
         fun o(p: Pt) = Offset(map.x(p), map.y(p))
 
         // 1. Karte
         if (tiles != null) {
             for (t in map.tiles()) {
-                val img = tiles.get(mapStyle, t.z, t.x, t.y) ?: continue
+                val img = tiles.get(t.z, t.x, t.y) ?: continue
                 val s = t.size.roundToInt() + 1 // +1 gegen Haarlinien zwischen Kacheln
                 drawImage(
                     image = img,
@@ -105,19 +107,17 @@ fun RouteView(
 }
 
 /**
- * Kontrast für das Graustufen-Display: Dark Matter ist sehr dunkel (Straßen ~#1a1a1a auf ~#0e0e0e),
- * Positron sehr hell. Ohne Anhebung ist auf dem Light-Display praktisch nichts zu sehen.
+ * OSM-Karte in Graustufen fürs Light-Display. Im dunklen Theme auf ~75 % Helligkeit,
+ * damit die weiße Route mit schwarzem Rand klar heraussticht und nichts blendet.
  */
-private fun contrastFor(style: MapStyle): ColorFilter {
-    val (gain, offset) = when (style) {
-        MapStyle.DARK -> 5f to -45f    // #0e → ~#19 (bleibt dunkel), #1a → ~#55, #26 → ~#91, Hauptstraßen → weiß
-        MapStyle.LIGHT -> 3f to -510f  // #fa → ~#f0, Flächen #f0 → ~#d2, Straßenränder #e0 → ~#a2, Schrift → schwarz
-    }
+private fun grayscale(dark: Boolean): ColorFilter {
+    val g = if (dark) 0.75f else 1f
+    val r = 0.299f * g; val gr = 0.587f * g; val b = 0.114f * g
     return ColorFilter.colorMatrix(
         ColorMatrix(floatArrayOf(
-            gain, 0f, 0f, 0f, offset,
-            0f, gain, 0f, 0f, offset,
-            0f, 0f, gain, 0f, offset,
+            r, gr, b, 0f, 0f,
+            r, gr, b, 0f, 0f,
+            r, gr, b, 0f, 0f,
             0f, 0f, 0f, 1f, 0f,
         ))
     )
