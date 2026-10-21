@@ -1,0 +1,55 @@
+name: Release
+
+# Ein Tag wie v0.2.0 pushen → APK bauen → GitHub-Release mit genau einer .apk
+# (so erwartet es BrightMarket).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag für den Release, z. B. v0.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Tests + APK
+        run: ./gradlew -DlightSdk.toolOnly=true :tool:testDebugUnitTest :tool:assembleDebug --stacktrace
+
+      - name: APK umbenennen
+        id: apk
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          SRC=$(ls tool/build/outputs/apk/debug/*.apk | head -1)
+          OUT="komoonlight-${TAG}.apk"
+          cp "$SRC" "$OUT"
+          echo "file=$OUT" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Release anlegen
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ steps.apk.outputs.tag }}" "${{ steps.apk.outputs.file }}" \
+            --title "komoonlight ${{ steps.apk.outputs.tag }}" \
+            --notes "Light-Phone-III-Tool für Komoot-Navigation. Installierbar über BrightMarket oder per Sideload."
