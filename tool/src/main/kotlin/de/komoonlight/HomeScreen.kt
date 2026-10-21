@@ -20,9 +20,11 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.lifecycle.viewModelScope
 import com.thelightphone.sdk.InitialScreen
+import com.thelightphone.sdk.LightFileShare
 import com.thelightphone.sdk.LightScreen
 import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.SealedLightActivity
+import com.thelightphone.sdk.SimpleLightScreen
 import com.thelightphone.sdk.ui.LightBarButton
 import com.thelightphone.sdk.ui.LightText
 import com.thelightphone.sdk.ui.LightTextField
@@ -35,10 +37,14 @@ import com.thelightphone.sdk.ui.LightTopBarCenter
 import com.thelightphone.sdk.ui.gridUnitsAsDp
 import com.thelightphone.sdk.ui.lightClickable
 import de.komoonlight.komoot.KomootClient
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.launch
 
-class HomeViewModel(dataStore: DataStore<Preferences>) : LightViewModel<Unit>() {
+class HomeViewModel(
+    dataStore: DataStore<Preferences>,
+    private val fileShare: LightFileShare,
+) : LightViewModel<Unit>() {
     private val store = Store(dataStore)
     val client = KomootClient()
 
@@ -49,14 +55,63 @@ class HomeViewModel(dataStore: DataStore<Preferences>) : LightViewModel<Unit>() 
     val password = MutableStateFlow("")
     val message = MutableStateFlow<String?>(null)
     val loading = MutableStateFlow(true)
+    /** Stand der Uploads zu Komoot, z. B. „1 Fahrt wartet auf Upload“. */
+    val syncStatus = MutableStateFlow<String?>(null)
+    private var syncJob: Job? = null
 
     init {
         viewModelScope.launch {
             session.value = store.session()
             loading.value = false
             if (session.value != null) loadTours()
+            syncPending()
         }
     }
+
+    /** Beim Zurückkehren auf den Startscreen (z. B. nach einer Fahrt) Uploads nachholen. */
+    override fun onScreenShow(screen: SimpleLightScreen<Unit>) {
+        super.onScreenShow(screen)
+        syncPending()
+    }
+
+    /**
+     * Lädt alle Aufzeichnungen hoch, die noch nicht bei Komoot sind.
+     * Klappt es nicht (offline, abgemeldet), bleiben sie liegen und werden beim nächsten Mal versucht.
+     */
+    fun syncPending() {
+        if (syncJob?.isActive == true) return
+        syncJob = viewModelScope.launch {
+            val files = fileShare.list(TRACKS_DIR).filter { it.isFile }.map { it.name }
+            val pending = pendingUploads(files, store.uploadedTracks())
+            if (pending.isEmpty()) { syncStatus.value = null; return@launch }
+            val s = session.value
+            if (s == null) { syncStatus.value = waiting(pending.size) + " – bitte anmelden"; return@launch }
+
+            var done = 0
+            for (f in pending) {
+                syncStatus.value = "Lade Fahrt hoch… (${done + 1}/${pending.size})"
+                val gpx = fileShare.read("$TRACKS_DIR/$f") { it.readText() } ?: continue
+                try {
+                    client.uploadRecorded(s, gpx, uploadName(f))
+                    store.markUploaded(f)
+                    done++
+                } catch (e: KomootClient.AuthException) {
+                    store.save(null); session.value = null
+                    syncStatus.value = waiting(pending.size - done) + " – bitte neu anmelden"
+                    return@launch
+                } catch (e: Exception) {
+                    syncStatus.value = waiting(pending.size - done) + " – kein Netz?"
+                    return@launch
+                }
+            }
+            syncStatus.value = if (done == 1) "Fahrt bei Komoot gespeichert ✓" else "$done Fahrten bei Komoot gespeichert ✓"
+            // „Gefahren“ neu laden, damit die Fahrt dort erscheint
+            tours.value = tours.value - KomootClient.TourType.RECORDED
+            if (tab.value == KomootClient.TourType.RECORDED) loadTours()
+        }
+    }
+
+    private fun waiting(n: Int) = if (n == 1) "1 Fahrt wartet auf Upload" else "$n Fahrten warten auf Upload"
 
     fun login() = viewModelScope.launch {
         if (email.value.isBlank() || password.value.isEmpty()) { message.value = "E-Mail und Passwort eingeben"; return@launch }
@@ -67,6 +122,7 @@ class HomeViewModel(dataStore: DataStore<Preferences>) : LightViewModel<Unit>() 
             password.value = ""
             session.value = s
             loadTours()
+            syncPending()
         } catch (e: KomootClient.AuthException) {
             message.value = "Anmeldung abgelehnt"
         } catch (e: Exception) {
@@ -106,7 +162,7 @@ class HomeViewModel(dataStore: DataStore<Preferences>) : LightViewModel<Unit>() 
 class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeViewModel>(sealedActivity) {
 
     override val viewModelClass: Class<HomeViewModel> get() = HomeViewModel::class.java
-    override fun createViewModel() = HomeViewModel(lightContext.dataStore)
+    override fun createViewModel() = HomeViewModel(lightContext.dataStore, lightContext.fileShare)
 
     @Composable
     override fun Content() {
@@ -114,6 +170,7 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
         val session by viewModel.session.collectAsState()
         val loading by viewModel.loading.collectAsState()
         val message by viewModel.message.collectAsState()
+        val sync by viewModel.syncStatus.collectAsState()
 
         LightTheme(colors = themeColors) {
             Column(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
@@ -130,8 +187,12 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
                             .lightClickable { navigateTo<Unit>({ NavScreen(it, null) }) }
                             .padding(vertical = 12.dp),
                     )
-                    LightText("Ohne Route, nur aufzeichnen", LightTextVariant.Detail, lighten = true,
-                        modifier = Modifier.padding(bottom = 24.dp))
+                    LightText("Ohne Route – wird danach bei Komoot gespeichert", LightTextVariant.Detail, lighten = true,
+                        modifier = Modifier.padding(bottom = if (sync == null) 24.dp else 8.dp))
+                    sync?.let {
+                        LightText(it, LightTextVariant.Detail,
+                            modifier = Modifier.lightClickable { viewModel.syncPending() }.padding(bottom = 24.dp))
+                    }
                     message?.let {
                         LightText(it, LightTextVariant.Detail, lighten = true, modifier = Modifier.padding(bottom = 12.dp))
                     }

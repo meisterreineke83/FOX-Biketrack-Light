@@ -9,7 +9,7 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.3)
+## Funktionen (v0.4)
 
 - **Einfach losfahren**: ohne Route sofort aufzeichnen – Kilometer, Fahrzeit, Ø-Tempo
   (geht auch ohne Komoot-Anmeldung)
@@ -20,8 +20,10 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 - **Sprachansagen** auf Deutsch: „In zweihundert Metern rechts abbiegen“, „Jetzt rechts abbiegen“,
   „Du hast die Route verlassen“, „Du hast dein Ziel erreicht“ – oben rechts „Ton an / Stumm“
 - Zusätzlich Vibration: einmal ~200 m vor der Abbiegung, zweimal „jetzt“, lang bei Abweichung > 50 m
-- Aufzeichnung als GPX → im **LightOS Tool Manager** (Browser) unter „Aufzeichnungen“ herunterladen
-  und in Komoot hochladen
+- **Fahrten landen automatisch bei Komoot unter „Gefahren“**: Nach jeder Aufzeichnung wird sie
+  hochgeladen („Radtour 21.10.2026, 17:45“, Sportart Fahrrad). Ohne Netz oder Anmeldung wartet sie
+  und wird beim nächsten Öffnen des Startscreens nachgeholt – antippen versucht es sofort erneut.
+- Zusätzlich als GPX im **LightOS Tool Manager** (Browser) unter „Aufzeichnungen“
 
 ## Code
 
@@ -44,6 +46,13 @@ tool/
     ├── geo/                        Geometrie, GPX
     └── ui/RouteView.kt             Routenzeichnung
 ```
+
+## Upload zu Komoot
+
+`KomootClient.uploadRecorded` nutzt – wie der GPX-Import auf komoot.com – den inoffiziellen Endpunkt
+`POST /v007/tours/?data_type=gpx` und setzt danach Name und Sportart (`PATCH /v007/tours/{id}`).
+Welche Dateien schon oben sind, merkt sich das Tool (DataStore); die GPX-Dateien bleiben zusätzlich
+lokal erhalten. Sportart ändern: Parameter `sport` (z. B. `racebike`, `mtb`, `e_touringbicycle`).
 
 ## Sprachansagen
 

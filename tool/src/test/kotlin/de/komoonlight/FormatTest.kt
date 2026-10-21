@@ -28,4 +28,19 @@ class FormatTest {
         assertEquals(0, rideMillis(emptyList()))
         assertEquals(0, rideMillis(listOf(Pt(0.0, 0.0))))
     }
+
+    @Test
+    fun namesUploadFromFileName() {
+        assertEquals("Radtour 21.10.2026, 17:45", uploadName("2026-10-21_17-45.gpx"))
+        assertEquals("Radtour", uploadName("irgendwas.gpx"))
+    }
+
+    @Test
+    fun findsPendingUploads() {
+        val files = listOf("2026-10-21_17-45.gpx", "2026-10-20_08-00.gpx", "notiz.txt", "2026-10-19_10-00.gpx")
+        assertEquals(
+            listOf("2026-10-20_08-00.gpx", "2026-10-21_17-45.gpx"),
+            pendingUploads(files, setOf("2026-10-19_10-00.gpx")),
+        )
+    }
 }

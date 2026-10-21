@@ -4,16 +4,24 @@ import de.komoonlight.geo.Pt
 import de.komoonlight.nav.Turn
 import io.ktor.client.HttpClient
 import io.ktor.client.engine.okhttp.OkHttp
+import io.ktor.client.request.HttpRequestBuilder
 import io.ktor.client.request.get
+import io.ktor.client.request.patch
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.request.header
 import io.ktor.client.statement.HttpResponse
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
 import io.ktor.http.HttpHeaders
+import io.ktor.http.content.TextContent
 import io.ktor.http.encodeURLPathPart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.doubleOrNull
 import kotlinx.serialization.json.intOrNull
@@ -84,12 +92,52 @@ class KomootClient {
         return parseRoute(o)
     }
 
+    /**
+     * Lädt eine aufgezeichnete Fahrt als „gefahrene“ Tour hoch (wie der GPX-Import auf komoot.com)
+     * und setzt danach Name + Sportart. Liefert die neue Tour-ID.
+     */
+    suspend fun uploadRecorded(s: Session, gpx: String, name: String, sport: String = "touringbicycle"): String =
+        withContext(Dispatchers.IO) {
+            val res = http.post("https://api.komoot.de/v007/tours/?data_type=gpx") {
+                auth(s.userId, s.token)
+                header(HttpHeaders.Accept, "application/hal+json")
+                setBody(TextContent(gpx, ContentType("application", "gpx+xml")))
+            }
+            check(res, "Hochladen")
+            val id = json.parseToJsonElement(res.bodyAsText()).jsonObject["id"]?.jsonPrimitive?.content
+                ?: throw KomootException("Upload ohne Tour-ID")
+
+            // Name/Sport sind kosmetisch – scheitert das, ist die Fahrt trotzdem gespeichert
+            runCatching {
+                http.patch("https://api.komoot.de/v007/tours/$id") {
+                    auth(s.userId, s.token)
+                    setBody(TextContent(
+                        buildJsonObject { put("name", name); put("sport", sport) }.toString(),
+                        ContentType.Application.Json,
+                    ))
+                }
+            }
+            id
+        }
+
     fun close() = http.close()
 
+    private fun HttpRequestBuilder.auth(user: String, pass: String) {
+        val b64 = Base64.getEncoder().encodeToString("$user:$pass".toByteArray())
+        header(HttpHeaders.Authorization, "Basic $b64")
+    }
+
+    private suspend fun check(res: HttpResponse, what: String) {
+        when (res.status.value) {
+            in 200..299 -> Unit
+            401, 403 -> throw AuthException("Anmeldung abgelehnt")
+            else -> throw KomootException("$what fehlgeschlagen (${res.status.value}): ${res.bodyAsText().take(200)}")
+        }
+    }
+
     private suspend fun get(url: String, user: String, pass: String): JsonObject = withContext(Dispatchers.IO) {
-        val auth = Base64.getEncoder().encodeToString("$user:$pass".toByteArray())
         val res: HttpResponse = http.get(url) {
-            header(HttpHeaders.Authorization, "Basic $auth")
+            auth(user, pass)
             header(HttpHeaders.Accept, "application/hal+json")
         }
         when (res.status.value) {
