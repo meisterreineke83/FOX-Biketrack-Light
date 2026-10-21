@@ -22,6 +22,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
@@ -54,6 +57,7 @@ import de.komoonlight.komoot.KomootClient
 import de.komoonlight.location.lightOsLocations
 import de.komoonlight.nav.NavEvent
 import de.komoonlight.nav.NavStatus
+import de.komoonlight.nav.AutoPause
 import de.komoonlight.nav.Navigator
 import de.komoonlight.nav.Turn
 import de.komoonlight.nav.VoiceAnnouncer
@@ -111,6 +115,10 @@ class NavViewModel(
     val recording = MutableStateFlow(false)
     val track = MutableStateFlow<List<Pt>>(emptyList())
     val trackDistanceM = MutableStateFlow(0.0)
+    /** Steht man 5 s still, pausiert die Aufzeichnung von selbst. */
+    private val autoPause = AutoPause()
+    val autoPaused = MutableStateFlow(false)
+    val movingMs = MutableStateFlow(0L)
     val voiceOn = MutableStateFlow(true)
     val mapOn = MutableStateFlow(true)
     /** Fahrtrichtung: aus der Navigation, sonst aus der eigenen Bewegung. */
@@ -151,7 +159,7 @@ class NavViewModel(
     /** Startet GPS, sobald die Berechtigung da ist – nur bei freier Fahrt und Navigation. */
     fun startGps() {
         if (gpsJob != null || !mode.value.usesGps) return
-        if (mode.value == Mode.FREE_RIDE && track.value.isEmpty()) recording.value = true
+        if (mode.value == Mode.FREE_RIDE && track.value.isEmpty()) { resetRecording(); recording.value = true }
         gpsJob = viewModelScope.launch {
             lightOsLocations().collect { onPosition(it) }
         }
@@ -167,7 +175,7 @@ class NavViewModel(
         navigator = Navigator(route.value, turns) // frisch, damit Ansagen wieder kommen
         announcedStart = false
         status.value = null
-        track.value = emptyList(); trackDistanceM.value = 0.0
+        resetRecording()
         recording.value = true
         zoomM.value = 300.0
         message.value = null
@@ -193,8 +201,13 @@ class NavViewModel(
         if (prev == null) lastMoved = p
         else if (Geo.dist(prev, p) > 8) { heading.value = Geo.bearing(prev, p); lastMoved = p }
         if (recording.value) {
-            track.value.lastOrNull()?.let { trackDistanceM.value += Geo.dist(it, p) }
-            track.value = track.value + p
+            val moving = autoPause.update(p)
+            autoPaused.value = autoPause.paused
+            movingMs.value = autoPause.movingMs
+            if (moving) {
+                track.value.lastOrNull()?.let { trackDistanceM.value += Geo.dist(it, p) }
+                track.value = track.value + p
+            }
         }
         val nav = navigator?.takeIf { mode.value == Mode.NAVIGATE } ?: return
         if (!announcedStart) { announcedStart = true; voice.play(VoicePrompts.START) }
@@ -235,10 +248,15 @@ class NavViewModel(
             recording.value = false
             saveTrack()?.let { message.value = "Gespeichert: $it" }
         } else {
-            track.value = emptyList(); trackDistanceM.value = 0.0
+            resetRecording()
             recording.value = true
             message.value = null
         }
+    }
+
+    private fun resetRecording() {
+        track.value = emptyList(); trackDistanceM.value = 0.0
+        autoPause.reset(); autoPaused.value = false; movingMs.value = 0
     }
 
     /** Schreibt den Track in den geteilten Ordner – im Tool Manager unter „Aufzeichnungen“. */
@@ -289,6 +307,8 @@ class NavScreen(
         val mapOn by viewModel.mapOn.collectAsState()
         val heading by viewModel.heading.collectAsState()
         val mode by viewModel.mode.collectAsState()
+        val autoPaused by viewModel.autoPaused.collectAsState()
+        val movingMs by viewModel.movingMs.collectAsState()
         val viewCenter by viewModel.viewCenter.collectAsState()
         val mapStatus by viewModel.tiles.status.collectAsState()
 
@@ -316,8 +336,8 @@ class NavScreen(
                 )
 
                 when (mode) {
-                    Mode.FREE_RIDE -> FreeRideHeader(track, pos, message, rec, recDist)
-                    Mode.NAVIGATE -> Header(status, pos, message, rec, recDist)
+                    Mode.FREE_RIDE -> FreeRideHeader(pos, message, rec, recDist, movingMs, autoPaused)
+                    Mode.NAVIGATE -> Header(status, pos, message, rec, recDist, autoPaused)
                     Mode.PREVIEW, Mode.VIEW -> TourHeader(message)
                 }
 
@@ -335,8 +355,8 @@ class NavScreen(
                         Modifier.align(Alignment.CenterEnd).padding(end = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                     ) {
-                        ZoomButton("+", colors.background) { viewModel.zoom(+1) }
-                        ZoomButton("−", colors.background) { viewModel.zoom(-1) }
+                        ZoomButton(plus = true, colors.content, colors.background) { viewModel.zoom(+1) }
+                        ZoomButton(plus = false, colors.content, colors.background) { viewModel.zoom(-1) }
                     }
                     if (mapOn) LightText(
                         mapStatus ?: MAP_ATTRIBUTION, LightTextVariant.Micro, lighten = mapStatus == null,
@@ -374,11 +394,20 @@ class NavScreen(
     }
 
     @Composable
-    private fun ZoomButton(label: String, background: Color, onClick: () -> Unit) {
-        Box(
-            Modifier.size(56.dp).background(background).lightClickable(onClick = onClick),
-            contentAlignment = Alignment.Center,
-        ) { LightText(label, LightTextVariant.Title) }
+    private fun ZoomButton(plus: Boolean, content: Color, background: Color, onClick: () -> Unit) {
+        // + / − als Linien gezeichnet: Schrift-Zeilenhöhe hat die Zeichen verschoben und abgeschnitten
+        Canvas(
+            Modifier.size(56.dp)
+                .background(background)
+                .border(2.dp, content)
+                .lightClickable(onClick = onClick)
+        ) {
+            val c = center
+            val arm = size.minDimension * 0.28f
+            val w = size.minDimension * 0.08f
+            drawLine(content, Offset(c.x - arm, c.y), Offset(c.x + arm, c.y), strokeWidth = w)
+            if (plus) drawLine(content, Offset(c.x, c.y - arm), Offset(c.x, c.y + arm), strokeWidth = w)
+        }
     }
 
     /** Vorschau einer geplanten bzw. Ansicht einer gefahrenen Tour. */
@@ -397,13 +426,12 @@ class NavScreen(
     }
 
     @Composable
-    private fun FreeRideHeader(track: List<Pt>, pos: Pt?, message: String?, rec: Boolean, distM: Double) {
+    private fun FreeRideHeader(pos: Pt?, message: String?, rec: Boolean, distM: Double, ms: Long, autoPaused: Boolean) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp)) {
             when {
                 pos == null -> LightText("Warte auf GPS…", LightTextVariant.Heading)
                 else -> {
                     LightText("%.2f km".format(distM / 1000), LightTextVariant.Title)
-                    val ms = rideMillis(track)
                     val avg = if (ms > 60_000) distM / 1000 / (ms / 3_600_000.0) else null
                     LightText(
                         listOfNotNull(formatDuration(ms), avg?.let { "Ø %.1f km/h".format(it) }).joinToString(" · "),
@@ -411,13 +439,16 @@ class NavScreen(
                     )
                 }
             }
-            if (!rec && pos != null) LightText("Pausiert", LightTextVariant.Detail, lighten = true)
+            when {
+                !rec && pos != null -> LightText("Gestoppt", LightTextVariant.Detail, lighten = true)
+                rec && autoPaused -> LightText("Pause – Aufzeichnung läuft weiter, sobald du fährst", LightTextVariant.Detail, lighten = true)
+            }
             message?.let { LightText(it, LightTextVariant.Fine, lighten = true) }
         }
     }
 
     @Composable
-    private fun Header(status: NavStatus?, pos: Pt?, message: String?, rec: Boolean, recDist: Double) {
+    private fun Header(status: NavStatus?, pos: Pt?, message: String?, rec: Boolean, recDist: Double, autoPaused: Boolean) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp)) {
             val turn = status?.nextTurn
             val d = status?.nextTurnInM
@@ -436,7 +467,10 @@ class NavScreen(
                 }
                 else -> LightText("Noch %.1f km".format(status.remainingM / 1000), LightTextVariant.Heading)
             }
-            if (rec) LightText("● Aufnahme · %.2f km".format(recDist / 1000), LightTextVariant.Detail)
+            if (rec) LightText(
+                (if (autoPaused) "‖ Pause · " else "● Aufnahme · ") + "%.2f km".format(recDist / 1000),
+                LightTextVariant.Detail,
+            )
             if (pos != null && message != null) LightText(message, LightTextVariant.Fine, lighten = true)
         }
     }

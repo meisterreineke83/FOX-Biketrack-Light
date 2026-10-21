@@ -1,8 +1,8 @@
 [tool]
 id = "de.meisterreineke.komoonlight"
 label = "Komoot"
-versionCode = 7
-versionName = "0.7.0"
+versionCode = 8
+versionName = "0.8.0"
 permissions = [
     "android.permission.INTERNET",
     "android.permission.ACCESS_FINE_LOCATION",

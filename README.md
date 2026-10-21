@@ -9,10 +9,12 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.7)
+## Funktionen (v0.8)
 
 - **Einfach losfahren**: ohne Route sofort aufzeichnen – Kilometer, Fahrzeit, Ø-Tempo
   (geht auch ohne Komoot-Anmeldung)
+- **Auto-Pause**: 5 s Stillstand (< 10 m) pausiert die Aufzeichnung, weiterfahren setzt sie fort;
+  Fahrzeit und Ø-Tempo zählen nur die Bewegung
 - Anmeldung mit Komoot-E-Mail + Passwort – gespeichert wird nur der Token
 - Touren getrennt nach **Geplant** und **Gefahren**, mit Datum und Länge
   - geplante Tour: Vorschau der ganzen Route, Navigation erst mit **„Route starten“**,
@@ -47,6 +49,7 @@ tool/
     ├── location/LightLocation.kt   GPS über LightOS
     ├── nav/Navigator.kt            Navigationslogik (ohne Android, getestet)
     ├── nav/Turn.kt                 Komoot-Abbiegetypen → Text + Pfeil
+    ├── nav/AutoPause.kt            Stillstand erkennen (getestet)
     ├── nav/VoicePrompts.kt         Ereignis → Sprachclip
     ├── nav/VoiceAnnouncer.kt       Abspielen über LightAudio
     ├── geo/                        Geometrie, GPX, Kartenprojektion (MapView, getestet)
