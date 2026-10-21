@@ -62,10 +62,16 @@ import java.time.format.DateTimeFormatter
 import kotlin.math.roundToInt
 import kotlin.time.Duration.Companion.milliseconds
 
-class NavViewModel(
-    private val client: KomootClient,
-    private val session: KomootClient.Session,
+/** Eine Komoot-Tour, der gefolgt wird. */
+data class TourRef(
+    val client: KomootClient,
+    val session: KomootClient.Session,
     val tour: KomootClient.TourInfo,
+)
+
+/** [ref] = null → freie Fahrt: keine Route, Aufzeichnung startet sofort mit dem ersten GPS-Fix. */
+class NavViewModel(
+    private val ref: TourRef?,
     private val fileShare: LightFileShare,
     private val vibrator: LightVibrator,
     private val voice: VoiceAnnouncer,
@@ -75,7 +81,9 @@ class NavViewModel(
     val route = MutableStateFlow<List<Pt>>(emptyList())
     val position = MutableStateFlow<Pt?>(null)
     val status = MutableStateFlow<NavStatus?>(null)
-    val message = MutableStateFlow<String?>("Lade Route…")
+    val message = MutableStateFlow<String?>(if (ref != null) "Lade Route…" else null)
+    val freeRide = ref == null
+    private val title = ref?.tour?.name ?: "Freie Fahrt"
     val zoomM = MutableStateFlow(300.0)
 
     val recording = MutableStateFlow(false)
@@ -92,9 +100,9 @@ class NavViewModel(
             voiceOn.value = store.voiceEnabled()
             voice.enabled = voiceOn.value
         }
-        viewModelScope.launch {
+        if (ref != null) viewModelScope.launch {
             try {
-                val r = client.route(session, tour.id)
+                val r = ref.client.route(ref.session, ref.tour.id)
                 route.value = r.points
                 navigator = Navigator(r.points, r.turns)
                 message.value = if (navigator!!.turns.isEmpty()) "Ohne Abbiegehinweise" else null
@@ -109,6 +117,7 @@ class NavViewModel(
     /** Startet GPS, sobald die Berechtigung da ist. Läuft weiter, bis der Screen verlassen wird. */
     fun startGps() {
         if (gpsJob != null) return
+        if (freeRide) recording.value = true
         gpsJob = viewModelScope.launch {
             lightOsLocations().collect { onPosition(it) }
         }
@@ -165,7 +174,7 @@ class NavViewModel(
         if (t.size < 2) return null
         val stamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm"))
         val file = "$stamp.gpx"
-        fileShare.write("$TRACKS_DIR/$file") { Gpx.write(it, "${tour.name} ($stamp)", t) }
+        fileShare.write("$TRACKS_DIR/$file") { Gpx.write(it, "$title ($stamp)", t) }
         return file
     }
 
@@ -177,15 +186,13 @@ class NavViewModel(
 
 class NavScreen(
     private val sealedActivity: SealedLightActivity,
-    private val client: KomootClient,
-    private val session: KomootClient.Session,
-    private val tour: KomootClient.TourInfo,
+    private val ref: TourRef?,
 ) : LightScreen<Unit, NavViewModel>(sealedActivity) {
 
     override val viewModelClass: Class<NavViewModel> get() = NavViewModel::class.java
     override fun createViewModel() =
         NavViewModel(
-            client, session, tour, lightContext.fileShare, sealedActivity.vibrator,
+            ref, lightContext.fileShare, sealedActivity.vibrator,
             VoiceAnnouncer(DefaultLightAudio(sealedActivity)), Store(lightContext.dataStore),
         )
 
@@ -219,11 +226,13 @@ class NavScreen(
             Column(Modifier.fillMaxSize().background(colors.background)) {
                 LightTopBar(
                     leftButton = LightBarButton.LightIcon(icon = LightIcons.BACK, onClick = { goBack() }),
-                    center = LightTopBarCenter.Text(tour.name),
-                    rightButton = LightBarButton.Text(if (voiceOn) "Ton an" else "Stumm", onClick = { viewModel.toggleVoice() }),
+                    center = LightTopBarCenter.Text(ref?.tour?.name ?: "Freie Fahrt"),
+                    rightButton = if (ref == null) null
+                        else LightBarButton.Text(if (voiceOn) "Ton an" else "Stumm", onClick = { viewModel.toggleVoice() }),
                 )
 
-                Header(status, pos, message, rec, recDist)
+                if (ref == null) FreeRideHeader(track, pos, message, rec, recDist)
+                else Header(status, pos, message, rec, recDist)
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     RouteView(route, track, pos, status?.headingDeg, zoom, colors.content, colors.background)
@@ -242,6 +251,26 @@ class NavScreen(
                     LightText("+", LightTextVariant.Title, modifier = Modifier.lightClickable { viewModel.zoom(+1) }.padding(8.dp))
                 }
             }
+        }
+    }
+
+    @Composable
+    private fun FreeRideHeader(track: List<Pt>, pos: Pt?, message: String?, rec: Boolean, distM: Double) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp)) {
+            when {
+                pos == null -> LightText("Warte auf GPS…", LightTextVariant.Heading)
+                else -> {
+                    LightText("%.2f km".format(distM / 1000), LightTextVariant.Title)
+                    val ms = rideMillis(track)
+                    val avg = if (ms > 60_000) distM / 1000 / (ms / 3_600_000.0) else null
+                    LightText(
+                        listOfNotNull(formatDuration(ms), avg?.let { "Ø %.1f km/h".format(it) }).joinToString(" · "),
+                        LightTextVariant.Copy,
+                    )
+                }
+            }
+            if (!rec && pos != null) LightText("Pausiert", LightTextVariant.Detail, lighten = true)
+            message?.let { LightText(it, LightTextVariant.Fine, lighten = true) }
         }
     }
 

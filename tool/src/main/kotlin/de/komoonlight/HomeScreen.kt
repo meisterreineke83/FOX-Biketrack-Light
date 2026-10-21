@@ -2,6 +2,7 @@ package de.komoonlight
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -42,7 +43,8 @@ class HomeViewModel(dataStore: DataStore<Preferences>) : LightViewModel<Unit>() 
     val client = KomootClient()
 
     val session = MutableStateFlow<KomootClient.Session?>(null)
-    val tours = MutableStateFlow<List<KomootClient.TourInfo>>(emptyList())
+    val tab = MutableStateFlow(KomootClient.TourType.PLANNED)
+    val tours = MutableStateFlow<Map<KomootClient.TourType, List<KomootClient.TourInfo>>>(emptyMap())
     val email = MutableStateFlow("")
     val password = MutableStateFlow("")
     val message = MutableStateFlow<String?>(null)
@@ -72,12 +74,20 @@ class HomeViewModel(dataStore: DataStore<Preferences>) : LightViewModel<Unit>() 
         } finally { loading.value = false }
     }
 
+    fun selectTab(t: KomootClient.TourType) {
+        tab.value = t
+        message.value = null
+        if (tours.value[t] == null) loadTours()
+    }
+
     fun loadTours() = viewModelScope.launch {
         val s = session.value ?: return@launch
+        val type = tab.value
         loading.value = true; message.value = null
         try {
-            tours.value = client.tours(s)
-            if (tours.value.isEmpty()) message.value = "Keine Touren gefunden"
+            val list = client.tours(s, type)
+            tours.value = tours.value + (type to list)
+            if (list.isEmpty()) message.value = "Keine Touren gefunden"
         } catch (e: KomootClient.AuthException) {
             store.save(null); session.value = null; message.value = "Bitte neu anmelden"
         } catch (e: Exception) {
@@ -86,7 +96,7 @@ class HomeViewModel(dataStore: DataStore<Preferences>) : LightViewModel<Unit>() 
     }
 
     fun logout() = viewModelScope.launch {
-        store.save(null); session.value = null; tours.value = emptyList()
+        store.save(null); session.value = null; tours.value = emptyMap()
     }
 
     override fun onCleared() { client.close() }
@@ -113,6 +123,15 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
                     modifier = Modifier.padding(bottom = 1f.gridUnitsAsDp()),
                 )
                 Column(Modifier.fillMaxSize().padding(horizontal = 1f.gridUnitsAsDp())) {
+                    // Freie Fahrt geht immer – auch ohne Komoot-Anmeldung
+                    LightText(
+                        "▶ Einfach losfahren", LightTextVariant.Heading,
+                        modifier = Modifier.fillMaxWidth()
+                            .lightClickable { navigateTo<Unit>({ NavScreen(it, null) }) }
+                            .padding(vertical = 12.dp),
+                    )
+                    LightText("Ohne Route, nur aufzeichnen", LightTextVariant.Detail, lighten = true,
+                        modifier = Modifier.padding(bottom = 24.dp))
                     message?.let {
                         LightText(it, LightTextVariant.Detail, lighten = true, modifier = Modifier.padding(bottom = 12.dp))
                     }
@@ -154,7 +173,21 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
 
     @Composable
     private fun TourList(loading: Boolean) {
-        val tours by viewModel.tours.collectAsState()
+        val all by viewModel.tours.collectAsState()
+        val tab by viewModel.tab.collectAsState()
+        val tours = all[tab].orEmpty()
+
+        Row(Modifier.fillMaxWidth().padding(bottom = 8.dp)) {
+            for (t in KomootClient.TourType.entries) {
+                LightText(
+                    if (t == KomootClient.TourType.PLANNED) "Geplant" else "Gefahren",
+                    LightTextVariant.Subheading,
+                    lighten = t != tab,
+                    underline = t == tab,
+                    modifier = Modifier.lightClickable { viewModel.selectTab(t) }.padding(end = 24.dp, top = 8.dp, bottom = 8.dp),
+                )
+            }
+        }
         if (loading && tours.isEmpty()) LightText("Lade Touren…", LightTextVariant.Copy)
         LazyColumn(Modifier.fillMaxWidth()) {
             items(tours, key = { it.id }) { t ->
@@ -162,13 +195,13 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
                     Modifier.fillMaxWidth()
                         .lightClickable {
                             val s = viewModel.session.value ?: return@lightClickable
-                            navigateTo<Unit>({ NavScreen(it, viewModel.client, s, t) })
+                            navigateTo<Unit>({ NavScreen(it, TourRef(viewModel.client, s, t)) })
                         }
                         .padding(vertical = 12.dp)
                 ) {
                     LightText(t.name, LightTextVariant.Copy, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     LightText(
-                        "%.1f km · %s".format(t.distanceM / 1000, if (t.planned) "geplant" else "gefahren"),
+                        listOfNotNull(formatDate(t.date), "%.1f km".format(t.distanceM / 1000)).joinToString(" · "),
                         LightTextVariant.Detail, lighten = true,
                     )
                 }

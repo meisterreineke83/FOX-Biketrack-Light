@@ -29,7 +29,17 @@ import java.util.Base64
 class KomootClient {
 
     data class Session(val userId: String, val token: String, val displayName: String)
-    data class TourInfo(val id: String, val name: String, val planned: Boolean, val sport: String, val distanceM: Double)
+    data class TourInfo(
+        val id: String,
+        val name: String,
+        val planned: Boolean,
+        val sport: String,
+        val distanceM: Double,
+        /** ISO-Datum, z. B. 2026-10-12T09:31:00.000+02:00 */
+        val date: String? = null,
+    )
+
+    enum class TourType(val apiValue: String) { PLANNED("tour_planned"), RECORDED("tour_recorded") }
     data class Route(val points: List<Pt>, val turns: List<Turn>)
 
     class AuthException(msg: String) : Exception(msg)
@@ -48,10 +58,11 @@ class KomootClient {
         )
     }
 
-    /** Geplante und gefahrene Touren, neueste zuerst. */
-    suspend fun tours(s: Session, page: Int = 0): List<TourInfo> {
+    /** Touren eines Typs (geplant/gefahren), neueste zuerst. */
+    suspend fun tours(s: Session, type: TourType, page: Int = 0): List<TourInfo> {
         val o = get(
-            "https://api.komoot.de/v007/users/${s.userId}/tours/?page=$page&limit=50&sort_field=date&sort_direction=desc",
+            "https://api.komoot.de/v007/users/${s.userId}/tours/" +
+                "?type=${type.apiValue}&page=$page&limit=50&sort_field=date&sort_direction=desc",
             s.userId, s.token,
         )
         val arr = o["_embedded"]?.jsonObject?.get("tours")?.jsonArray ?: return emptyList()
@@ -62,8 +73,9 @@ class KomootClient {
                 planned = t.str("type") == "tour_planned",
                 sport = t.str("sport") ?: "",
                 distanceM = t["distance"]?.jsonPrimitive?.doubleOrNull ?: 0.0,
+                date = t.str("date"),
             )
-        }
+        }.filter { it.planned == (type == TourType.PLANNED) } // falls die API den Filter ignoriert
     }
 
     /** Geometrie + Abbiegehinweise. Gefahrene Touren haben meist keine Hinweise. */

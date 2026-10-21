@@ -9,10 +9,12 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.2)
+## Funktionen (v0.3)
 
+- **Einfach losfahren**: ohne Route sofort aufzeichnen – Kilometer, Fahrzeit, Ø-Tempo
+  (geht auch ohne Komoot-Anmeldung)
 - Anmeldung mit Komoot-E-Mail + Passwort – gespeichert wird nur der Token
-- Liste der geplanten und gefahrenen Touren
+- Touren getrennt nach **Geplant** und **Gefahren**, mit Datum und Länge
 - Kartenlose Routenansicht: Linie, eigener Weg gepunktet, Pfeil in Fahrtrichtung, Zoom
 - Nächste Abbiegung groß ab 300 m („→ 120 m rechts, Hauptstraße“), sonst Rest-km
 - **Sprachansagen** auf Deutsch: „In zweihundert Metern rechts abbiegen“, „Jetzt rechts abbiegen“,
@@ -28,7 +30,8 @@ tool/
 ├── lighttool.toml                  ID, Name, Berechtigungen (statt AndroidManifest)
 └── src/main/kotlin/de/komoonlight/
     ├── HomeScreen.kt               Login + Tourenliste (Startscreen)
-    ├── NavScreen.kt                Navigation, Aufnahme, Vibration
+    ├── NavScreen.kt                Navigation / freie Fahrt, Aufnahme, Vibration
+    ├── Format.kt                   Datum, Fahrzeit (getestet)
     ├── TextEditorScreen.kt         Light-Tastatur für Eingabefelder
     ├── ToolEntryPoint.kt           Tool-Manager-Ordner „Aufzeichnungen“
     ├── Store.kt                    Token-Speicher (DataStore)
