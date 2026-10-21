@@ -4,6 +4,7 @@ import de.komoonlight.geo.Geo
 import de.komoonlight.geo.MapView
 import de.komoonlight.geo.Pt
 import de.komoonlight.geo.WebMercator
+import de.komoonlight.geo.fitRoute
 import de.komoonlight.geo.tilesAlong
 import kotlin.math.abs
 import kotlin.test.Test
@@ -64,5 +65,16 @@ class MapViewTest {
         val t = tilesAlong(route, listOf(15, 16), limit = 50)
         assertTrue(t.size <= 50)
         assertEquals(t.size, t.toSet().size)
+    }
+
+    @Test
+    fun wholeRouteFitsOnScreen() {
+        val route = listOf(berlin, Pt(berlin.lat + 0.05, berlin.lon + 0.08), Pt(berlin.lat - 0.02, berlin.lon + 0.03))
+        val (c, radius) = fitRoute(route)!!
+        val v = MapView(c, radius, 1080f, 900f)
+        for (p in route) {
+            assertTrue(v.x(p) in 0f..1080f && v.y(p) in 0f..900f, "${v.x(p)}, ${v.y(p)}")
+        }
+        assertEquals(null, fitRoute(emptyList()))
     }
 }

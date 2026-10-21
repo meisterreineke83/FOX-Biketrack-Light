@@ -8,6 +8,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.ColorMatrix
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
@@ -31,6 +33,8 @@ fun RouteView(
     route: List<Pt>,
     track: List<Pt>,
     position: Pt?,
+    /** Bildmitte; null → eigene Position bzw. Routenanfang. */
+    center: Pt?,
     headingDeg: Double?,
     radiusM: Double,
     content: Color,
@@ -44,8 +48,9 @@ fun RouteView(
 
     Canvas(modifier) {
         tileVersion // im Zeichenblock gelesen → Invalidierung
-        val center = position ?: route.firstOrNull() ?: return@Canvas
-        val map = MapView(center, radiusM, size.width, size.height)
+        val mid = center ?: position ?: route.firstOrNull() ?: return@Canvas
+        val map = MapView(mid, radiusM, size.width, size.height)
+        val filter = contrastFor(mapStyle)
         fun o(p: Pt) = Offset(map.x(p), map.y(p))
 
         // 1. Karte
@@ -59,6 +64,7 @@ fun RouteView(
                     srcSize = IntSize(img.width, img.height),
                     dstOffset = IntOffset(t.left.roundToInt(), t.top.roundToInt()),
                     dstSize = IntSize(s, s),
+                    colorFilter = filter,
                 )
             }
         }
@@ -83,7 +89,7 @@ fun RouteView(
             style = Stroke(width = 5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 14f)), cap = StrokeCap.Round),
         )
 
-        // 4. Position
+        // 4. Position (nur wenn sie im Bild liegt)
         if (position != null) {
             val c = o(position)
             val arrow = Path().apply {
@@ -96,4 +102,23 @@ fun RouteView(
             }
         }
     }
+}
+
+/**
+ * Kontrast für das Graustufen-Display: Dark Matter ist sehr dunkel (Straßen ~#1a1a1a auf ~#0e0e0e),
+ * Positron sehr hell. Ohne Anhebung ist auf dem Light-Display praktisch nichts zu sehen.
+ */
+private fun contrastFor(style: MapStyle): ColorFilter {
+    val (gain, offset) = when (style) {
+        MapStyle.DARK -> 5f to -45f    // #0e → ~#19 (bleibt dunkel), #1a → ~#55, #26 → ~#91, Hauptstraßen → weiß
+        MapStyle.LIGHT -> 3f to -510f  // #fa → ~#f0, Flächen #f0 → ~#d2, Straßenränder #e0 → ~#a2, Schrift → schwarz
+    }
+    return ColorFilter.colorMatrix(
+        ColorMatrix(floatArrayOf(
+            gain, 0f, 0f, 0f, offset,
+            0f, gain, 0f, 0f, offset,
+            0f, 0f, gain, 0f, offset,
+            0f, 0f, 0f, 1f, 0f,
+        ))
+    )
 }

@@ -85,3 +85,14 @@ fun tilesAlong(route: List<Pt>, zooms: List<Int>, limit: Int): List<Triple<Int, 
     }
     return out.toList()
 }
+
+/** Mittelpunkt und Radius (Meter), damit die ganze Route auf den Bildschirm passt. */
+fun fitRoute(route: List<Pt>): Pair<Pt, Double>? {
+    if (route.isEmpty()) return null
+    val minLat = route.minOf { it.lat }; val maxLat = route.maxOf { it.lat }
+    val minLon = route.minOf { it.lon }; val maxLon = route.maxOf { it.lon }
+    val center = Pt((minLat + maxLat) / 2, (minLon + maxLon) / 2)
+    val halfH = Geo.dist(Pt(minLat, center.lon), Pt(maxLat, center.lon)) / 2
+    val halfW = Geo.dist(Pt(center.lat, minLon), Pt(center.lat, maxLon)) / 2
+    return center to (maxOf(halfH, halfW) * 1.15).coerceIn(150.0, 50_000.0)
+}

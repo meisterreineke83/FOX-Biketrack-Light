@@ -52,8 +52,10 @@ import de.komoonlight.location.lightOsLocations
 import de.komoonlight.nav.NavEvent
 import de.komoonlight.nav.NavStatus
 import de.komoonlight.nav.Navigator
+import de.komoonlight.nav.Turn
 import de.komoonlight.nav.VoiceAnnouncer
 import de.komoonlight.nav.VoicePrompts
+import de.komoonlight.geo.fitRoute
 import de.komoonlight.geo.tilesAlong
 import de.komoonlight.map.MAP_ATTRIBUTION
 import de.komoonlight.map.MapStyle
@@ -85,11 +87,22 @@ class NavViewModel(
     val tiles: TileStore,
 ) : LightViewModel<Unit>() {
 
+    /** Was der Screen gerade tut – bestimmt Kopfzeile und Knöpfe. */
+    val mode = MutableStateFlow(
+        when {
+            ref == null -> Mode.FREE_RIDE
+            ref.tour.planned -> Mode.PREVIEW
+            else -> Mode.VIEW
+        }
+    )
+    /** Bildmitte in Vorschau/Ansicht (ganze Route im Bild). */
+    val viewCenter = MutableStateFlow<Pt?>(null)
+    private var turns: List<Turn> = emptyList()
+
     val route = MutableStateFlow<List<Pt>>(emptyList())
     val position = MutableStateFlow<Pt?>(null)
     val status = MutableStateFlow<NavStatus?>(null)
     val message = MutableStateFlow<String?>(if (ref != null) "Lade Route…" else null)
-    val freeRide = ref == null
     private val title = ref?.tour?.name ?: "Freie Fahrt"
     val zoomM = MutableStateFlow(300.0)
 
@@ -116,10 +129,14 @@ class NavViewModel(
             try {
                 val r = ref.client.route(ref.session, ref.tour.id)
                 route.value = r.points
-                navigator = Navigator(r.points, r.turns)
-                // Kartenkacheln entlang der Route vorab laden → Karte auch ohne Netz
-                if (mapOn.value) tiles.prefetch(currentMapStyle(), tilesAlong(r.points, listOf(15, 16), limit = 400))
-                message.value = if (navigator!!.turns.isEmpty()) "Ohne Abbiegehinweise" else null
+                turns = r.turns
+                fitRoute(r.points)?.let { (c, radius) -> viewCenter.value = c; zoomM.value = radius }
+                message.value = null
+                if (ref.tour.planned) {
+                    // Kartenkacheln entlang der Route vorab laden → Karte auch ohne Netz
+                    if (mapOn.value) tiles.prefetch(currentMapStyle(), tilesAlong(r.points, listOf(15, 16), limit = 400))
+                    if (Navigator(r.points, r.turns).turns.isEmpty()) message.value = "Ohne Abbiegehinweise"
+                }
             } catch (e: KomootClient.AuthException) {
                 message.value = "Bitte neu anmelden"
             } catch (e: Exception) {
@@ -128,13 +145,43 @@ class NavViewModel(
         }
     }
 
-    /** Startet GPS, sobald die Berechtigung da ist. Läuft weiter, bis der Screen verlassen wird. */
+    /** Startet GPS, sobald die Berechtigung da ist – nur bei freier Fahrt und Navigation. */
     fun startGps() {
-        if (gpsJob != null) return
-        if (freeRide) recording.value = true
+        if (gpsJob != null || !mode.value.usesGps) return
+        if (mode.value == Mode.FREE_RIDE && track.value.isEmpty()) recording.value = true
         gpsJob = viewModelScope.launch {
             lightOsLocations().collect { onPosition(it) }
         }
+    }
+
+    private fun stopGps() {
+        gpsJob?.cancel(); gpsJob = null
+    }
+
+    /** Geplante Tour: Navigation + Aufzeichnung starten. */
+    fun startRoute() {
+        if (route.value.size < 2) return
+        navigator = Navigator(route.value, turns) // frisch, damit Ansagen wieder kommen
+        announcedStart = false
+        status.value = null
+        track.value = emptyList(); trackDistanceM.value = 0.0
+        recording.value = true
+        zoomM.value = 300.0
+        message.value = null
+        mode.value = Mode.NAVIGATE // GPS startet über den Screen (Berechtigung)
+    }
+
+    /** Navigation beenden: Fahrt speichern (→ Upload zu Komoot), zurück zur Vorschau. */
+    fun finishRoute() {
+        stopGps()
+        val saved = if (recording.value) saveTrack() else null
+        recording.value = false
+        navigator = null
+        status.value = null
+        position.value = null
+        fitRoute(route.value)?.let { (c, radius) -> viewCenter.value = c; zoomM.value = radius }
+        message.value = saved?.let { "Fahrt gespeichert – wird zu Komoot hochgeladen" }
+        mode.value = Mode.PREVIEW
     }
 
     private fun onPosition(p: Pt) {
@@ -146,7 +193,7 @@ class NavViewModel(
             track.value.lastOrNull()?.let { trackDistanceM.value += Geo.dist(it, p) }
             track.value = track.value + p
         }
-        val nav = navigator ?: return
+        val nav = navigator?.takeIf { mode.value == Mode.NAVIGATE } ?: return
         if (!announcedStart) { announcedStart = true; voice.play(VoicePrompts.START) }
         val (s, events) = nav.update(p)
         status.value = s
@@ -178,7 +225,7 @@ class NavViewModel(
         viewModelScope.launch { store.setMapEnabled(mapOn.value) }
     }
 
-    fun zoom(dir: Int) { zoomM.value = (zoomM.value * if (dir > 0) 0.5 else 2.0).coerceIn(75.0, 5000.0) }
+    fun zoom(dir: Int) { zoomM.value = (zoomM.value * if (dir > 0) 0.5 else 2.0).coerceIn(75.0, 50_000.0) }
 
     fun toggleRecording() {
         if (recording.value) {
@@ -238,10 +285,14 @@ class NavScreen(
         val voiceOn by viewModel.voiceOn.collectAsState()
         val mapOn by viewModel.mapOn.collectAsState()
         val heading by viewModel.heading.collectAsState()
+        val mode by viewModel.mode.collectAsState()
+        val viewCenter by viewModel.viewCenter.collectAsState()
+        val mapStatus by viewModel.tiles.status.collectAsState()
 
-        // GPS-Berechtigung über LightOS prüfen/anfragen, dann starten
+        // GPS-Berechtigung über LightOS prüfen/anfragen, dann starten (nur freie Fahrt / Navigation)
         val permission = rememberPermissionRequestLauncher(Manifest.permission.ACCESS_FINE_LOCATION)
-        LaunchedEffect(resumeCount) {
+        LaunchedEffect(resumeCount, mode) {
+            if (!mode.usesGps) return@LaunchedEffect
             val granted = checkPermission(Manifest.permission.ACCESS_FINE_LOCATION).asKotlinResult
                 .map { it.permissionResult == LightServiceMethod.GetPermission.Result.Granted }
                 .getOrDefault(false)
@@ -254,21 +305,29 @@ class NavScreen(
                 LightTopBar(
                     leftButton = LightBarButton.LightIcon(icon = LightIcons.BACK, onClick = { goBack() }),
                     center = LightTopBarCenter.Text(ref?.tour?.name ?: "Freie Fahrt"),
-                    rightButton = if (ref == null) null
-                        else LightBarButton.Text(if (voiceOn) "Ton an" else "Stumm", onClick = { viewModel.toggleVoice() }),
+                    // Ton nur, wo es Ansagen gibt
+                    rightButton = if (mode == Mode.PREVIEW || mode == Mode.NAVIGATE)
+                        LightBarButton.Text(if (voiceOn) "Ton an" else "Stumm", onClick = { viewModel.toggleVoice() })
+                    else null,
                 )
 
-                if (ref == null) FreeRideHeader(track, pos, message, rec, recDist)
-                else Header(status, pos, message, rec, recDist)
+                when (mode) {
+                    Mode.FREE_RIDE -> FreeRideHeader(track, pos, message, rec, recDist)
+                    Mode.NAVIGATE -> Header(status, pos, message, rec, recDist)
+                    Mode.PREVIEW, Mode.VIEW -> TourHeader(message)
+                }
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
                     RouteView(
-                        route, track, pos, heading, zoom, colors.content, colors.background,
+                        route, track, pos,
+                        center = if (mode.usesGps) null else viewCenter,
+                        headingDeg = heading, radiusM = zoom,
+                        content = colors.content, background = colors.background,
                         tiles = if (mapOn) viewModel.tiles else null,
                         mapStyle = styleFor(colors.background),
                     )
                     if (mapOn) LightText(
-                        MAP_ATTRIBUTION, LightTextVariant.Micro, lighten = true,
+                        mapStatus ?: MAP_ATTRIBUTION, LightTextVariant.Micro, lighten = mapStatus == null,
                         modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
                     )
                 }
@@ -283,13 +342,38 @@ class NavScreen(
                         if (mapOn) "Karte" else "Karte aus", LightTextVariant.Button, lighten = !mapOn,
                         modifier = Modifier.lightClickable { viewModel.toggleMap() }.padding(8.dp),
                     )
-                    LightText(
-                        if (rec) "Stopp" else "Aufnehmen", LightTextVariant.Button,
-                        modifier = Modifier.lightClickable { viewModel.toggleRecording() }.padding(8.dp),
-                    )
+                    when (mode) {
+                        Mode.FREE_RIDE -> LightText(
+                            if (rec) "Stopp" else "Aufnehmen", LightTextVariant.Button,
+                            modifier = Modifier.lightClickable { viewModel.toggleRecording() }.padding(8.dp),
+                        )
+                        Mode.PREVIEW -> LightText(
+                            "Route starten", LightTextVariant.Button,
+                            modifier = Modifier.lightClickable(enabled = route.size > 1) { viewModel.startRoute() }.padding(8.dp),
+                        )
+                        Mode.NAVIGATE -> LightText(
+                            "Beenden", LightTextVariant.Button,
+                            modifier = Modifier.lightClickable { viewModel.finishRoute() }.padding(8.dp),
+                        )
+                        Mode.VIEW -> Unit // gefahrene Tour: nur ansehen
+                    }
                     LightText("+", LightTextVariant.Title, modifier = Modifier.lightClickable { viewModel.zoom(+1) }.padding(8.dp))
                 }
             }
+        }
+    }
+
+    /** Vorschau einer geplanten bzw. Ansicht einer gefahrenen Tour. */
+    @Composable
+    private fun TourHeader(message: String?) {
+        val t = ref?.tour ?: return
+        Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp)) {
+            LightText("%.1f km".format(t.distanceM / 1000), LightTextVariant.Heading)
+            LightText(
+                listOfNotNull(formatDate(t.date), if (t.planned) "geplant" else "gefahren").joinToString(" · "),
+                LightTextVariant.Detail, lighten = true,
+            )
+            message?.let { LightText(it, LightTextVariant.Fine, lighten = true) }
         }
     }
 
@@ -344,3 +428,15 @@ private fun styleFor(background: Color): MapStyle =
     if (background.luminance() < 0.5f) MapStyle.DARK else MapStyle.LIGHT
 
 private fun currentMapStyle(): MapStyle = styleFor(LightThemeController.colors.value.background)
+
+/** Zustände des Navigationsscreens. */
+enum class Mode(val usesGps: Boolean) {
+    /** „Einfach losfahren“ – nur aufzeichnen. */
+    FREE_RIDE(true),
+    /** Geplante Tour ansehen, „Route starten“. */
+    PREVIEW(false),
+    /** Geplanter Tour folgen, mit Ansagen und Aufzeichnung. */
+    NAVIGATE(true),
+    /** Gefahrene Tour ansehen. */
+    VIEW(false),
+}

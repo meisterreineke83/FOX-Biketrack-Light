@@ -56,6 +56,10 @@ class TileStore(filesDir: File, private val userAgent: String) {
     private val _version = MutableStateFlow(0)
     val version: StateFlow<Int> = _version
 
+    /** null = alles gut, sonst kurzer Hinweis, warum keine Karte kommt. */
+    private val _status = MutableStateFlow<String?>("Karte lädt…")
+    val status: StateFlow<String?> = _status
+
     init {
         scope.launch { cleanup(maxAgeDays = 60) }
     }
@@ -68,7 +72,9 @@ class TileStore(filesDir: File, private val userAgent: String) {
             scope.launch {
                 try {
                     val bytes = load(style, z, x, y) ?: return@launch
-                    decode(bytes)?.let { mem.put(key, it); _version.value++ }
+                    val img = decode(bytes)
+                    if (img == null) _status.value = "Karte: Kachel unlesbar"
+                    else { mem.put(key, img); _status.value = null; _version.value++ }
                 } finally {
                     inflight.remove(key)
                 }
@@ -99,12 +105,15 @@ class TileStore(filesDir: File, private val userAgent: String) {
                 val res = http.get(style.url(z, x, y)) { header(HttpHeaders.UserAgent, userAgent) }
                 if (!res.status.isSuccess()) {
                     if (res.status.value == 404) failed += key(style, z, x, y)
+                    if (sem === net) _status.value = "Karte: Server-Fehler ${res.status.value}"
                     return@runCatching null
                 }
                 res.readRawBytes().also { bytes ->
                     file.parentFile?.mkdirs()
                     file.writeBytes(bytes)
                 }
+            }.onFailure {
+                if (sem === net) _status.value = "Karte offline – keine Verbindung"
             }.getOrNull()
         }
     }

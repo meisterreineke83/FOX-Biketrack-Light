@@ -9,15 +9,19 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.5)
+## Funktionen (v0.6)
 
 - **Einfach losfahren**: ohne Route sofort aufzeichnen – Kilometer, Fahrzeit, Ø-Tempo
   (geht auch ohne Komoot-Anmeldung)
 - Anmeldung mit Komoot-E-Mail + Passwort – gespeichert wird nur der Token
 - Touren getrennt nach **Geplant** und **Gefahren**, mit Datum und Länge
+  - geplante Tour: Vorschau der ganzen Route, Navigation erst mit **„Route starten“**,
+    „Beenden“ speichert die Fahrt (→ Komoot)
+  - gefahrene Tour: nur ansehen – ohne Aufnahme- und Ton-Knopf
 - **Karte im Hintergrund** (OpenStreetMap, Stil CARTO „Dark Matter“ bzw. „Positron“ im hellen Theme),
   darüber Route, eigener Weg gepunktet und Pfeil in Fahrtrichtung; Zoom, „Karte“ schaltet sie ab.
   Kacheln entlang der Route werden vorab geladen und 60 Tage zwischengespeichert → auch ohne Netz.
+  Kontrast wird fürs Graustufen-Display angehoben; lädt die Karte nicht, steht der Grund unten links.
 - Nächste Abbiegung groß ab 300 m („→ 120 m rechts, Hauptstraße“), sonst Rest-km
 - **Sprachansagen** auf Deutsch: „In zweihundert Metern rechts abbiegen“, „Jetzt rechts abbiegen“,
   „Du hast die Route verlassen“, „Du hast dein Ziel erreicht“ – oben rechts „Ton an / Stumm“
