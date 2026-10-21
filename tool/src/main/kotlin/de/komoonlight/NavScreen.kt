@@ -19,6 +19,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.thelightphone.sdk.LightFileShare
@@ -52,6 +54,10 @@ import de.komoonlight.nav.NavStatus
 import de.komoonlight.nav.Navigator
 import de.komoonlight.nav.VoiceAnnouncer
 import de.komoonlight.nav.VoicePrompts
+import de.komoonlight.geo.tilesAlong
+import de.komoonlight.map.MAP_ATTRIBUTION
+import de.komoonlight.map.MapStyle
+import de.komoonlight.map.TileStore
 import de.komoonlight.ui.RouteView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -76,6 +82,7 @@ class NavViewModel(
     private val vibrator: LightVibrator,
     private val voice: VoiceAnnouncer,
     private val store: Store,
+    val tiles: TileStore,
 ) : LightViewModel<Unit>() {
 
     val route = MutableStateFlow<List<Pt>>(emptyList())
@@ -90,6 +97,10 @@ class NavViewModel(
     val track = MutableStateFlow<List<Pt>>(emptyList())
     val trackDistanceM = MutableStateFlow(0.0)
     val voiceOn = MutableStateFlow(true)
+    val mapOn = MutableStateFlow(true)
+    /** Fahrtrichtung: aus der Navigation, sonst aus der eigenen Bewegung. */
+    val heading = MutableStateFlow<Double?>(null)
+    private var lastMoved: Pt? = null
 
     private var navigator: Navigator? = null
     private var gpsJob: Job? = null
@@ -99,12 +110,15 @@ class NavViewModel(
         viewModelScope.launch {
             voiceOn.value = store.voiceEnabled()
             voice.enabled = voiceOn.value
+            mapOn.value = store.mapEnabled()
         }
         if (ref != null) viewModelScope.launch {
             try {
                 val r = ref.client.route(ref.session, ref.tour.id)
                 route.value = r.points
                 navigator = Navigator(r.points, r.turns)
+                // Kartenkacheln entlang der Route vorab laden → Karte auch ohne Netz
+                if (mapOn.value) tiles.prefetch(currentMapStyle(), tilesAlong(r.points, listOf(15, 16), limit = 400))
                 message.value = if (navigator!!.turns.isEmpty()) "Ohne Abbiegehinweise" else null
             } catch (e: KomootClient.AuthException) {
                 message.value = "Bitte neu anmelden"
@@ -125,6 +139,9 @@ class NavViewModel(
 
     private fun onPosition(p: Pt) {
         position.value = p
+        val prev = lastMoved
+        if (prev == null) lastMoved = p
+        else if (Geo.dist(prev, p) > 8) { heading.value = Geo.bearing(prev, p); lastMoved = p }
         if (recording.value) {
             track.value.lastOrNull()?.let { trackDistanceM.value += Geo.dist(it, p) }
             track.value = track.value + p
@@ -133,6 +150,7 @@ class NavViewModel(
         if (!announcedStart) { announcedStart = true; voice.play(VoicePrompts.START) }
         val (s, events) = nav.update(p)
         status.value = s
+        heading.value = s.headingDeg
         events.forEach(::react)
     }
 
@@ -153,6 +171,11 @@ class NavViewModel(
         voiceOn.value = !voiceOn.value
         voice.enabled = voiceOn.value
         viewModelScope.launch { store.setVoiceEnabled(voiceOn.value) }
+    }
+
+    fun toggleMap() {
+        mapOn.value = !mapOn.value
+        viewModelScope.launch { store.setMapEnabled(mapOn.value) }
     }
 
     fun zoom(dir: Int) { zoomM.value = (zoomM.value * if (dir > 0) 0.5 else 2.0).coerceIn(75.0, 5000.0) }
@@ -181,6 +204,7 @@ class NavViewModel(
     override fun onCleared() {
         if (recording.value) saveTrack()
         voice.release()
+        tiles.close()
     }
 }
 
@@ -194,6 +218,7 @@ class NavScreen(
         NavViewModel(
             ref, lightContext.fileShare, sealedActivity.vibrator,
             VoiceAnnouncer(DefaultLightAudio(sealedActivity)), Store(lightContext.dataStore),
+            TileStore(lightContext.filesDir, "FOX-Biketrack-Light (Light Phone III; github.com/meisterreineke83/FOX-Biketrack-Light)"),
         )
 
     private var resumeCount by mutableIntStateOf(0)
@@ -211,6 +236,8 @@ class NavScreen(
         val rec by viewModel.recording.collectAsState()
         val recDist by viewModel.trackDistanceM.collectAsState()
         val voiceOn by viewModel.voiceOn.collectAsState()
+        val mapOn by viewModel.mapOn.collectAsState()
+        val heading by viewModel.heading.collectAsState()
 
         // GPS-Berechtigung über LightOS prüfen/anfragen, dann starten
         val permission = rememberPermissionRequestLauncher(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -235,7 +262,15 @@ class NavScreen(
                 else Header(status, pos, message, rec, recDist)
 
                 Box(Modifier.weight(1f).fillMaxWidth()) {
-                    RouteView(route, track, pos, status?.headingDeg, zoom, colors.content, colors.background)
+                    RouteView(
+                        route, track, pos, heading, zoom, colors.content, colors.background,
+                        tiles = if (mapOn) viewModel.tiles else null,
+                        mapStyle = styleFor(colors.background),
+                    )
+                    if (mapOn) LightText(
+                        MAP_ATTRIBUTION, LightTextVariant.Micro, lighten = true,
+                        modifier = Modifier.align(Alignment.BottomStart).padding(4.dp),
+                    )
                 }
 
                 Row(
@@ -244,6 +279,10 @@ class NavScreen(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     LightText("−", LightTextVariant.Title, modifier = Modifier.lightClickable { viewModel.zoom(-1) }.padding(8.dp))
+                    LightText(
+                        if (mapOn) "Karte" else "Karte aus", LightTextVariant.Button, lighten = !mapOn,
+                        modifier = Modifier.lightClickable { viewModel.toggleMap() }.padding(8.dp),
+                    )
                     LightText(
                         if (rec) "Stopp" else "Aufnehmen", LightTextVariant.Button,
                         modifier = Modifier.lightClickable { viewModel.toggleRecording() }.padding(8.dp),
@@ -299,3 +338,9 @@ class NavScreen(
         }
     }
 }
+
+/** Dunkles Theme → dunkle Karte, helles Theme → helle Karte. */
+private fun styleFor(background: Color): MapStyle =
+    if (background.luminance() < 0.5f) MapStyle.DARK else MapStyle.LIGHT
+
+private fun currentMapStyle(): MapStyle = styleFor(LightThemeController.colors.value.background)

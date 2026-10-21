@@ -9,13 +9,15 @@ Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.4)
+## Funktionen (v0.5)
 
 - **Einfach losfahren**: ohne Route sofort aufzeichnen – Kilometer, Fahrzeit, Ø-Tempo
   (geht auch ohne Komoot-Anmeldung)
 - Anmeldung mit Komoot-E-Mail + Passwort – gespeichert wird nur der Token
 - Touren getrennt nach **Geplant** und **Gefahren**, mit Datum und Länge
-- Kartenlose Routenansicht: Linie, eigener Weg gepunktet, Pfeil in Fahrtrichtung, Zoom
+- **Karte im Hintergrund** (OpenStreetMap, Stil CARTO „Dark Matter“ bzw. „Positron“ im hellen Theme),
+  darüber Route, eigener Weg gepunktet und Pfeil in Fahrtrichtung; Zoom, „Karte“ schaltet sie ab.
+  Kacheln entlang der Route werden vorab geladen und 60 Tage zwischengespeichert → auch ohne Netz.
 - Nächste Abbiegung groß ab 300 m („→ 120 m rechts, Hauptstraße“), sonst Rest-km
 - **Sprachansagen** auf Deutsch: „In zweihundert Metern rechts abbiegen“, „Jetzt rechts abbiegen“,
   „Du hast die Route verlassen“, „Du hast dein Ziel erreicht“ – oben rechts „Ton an / Stumm“
@@ -43,8 +45,9 @@ tool/
     ├── nav/Turn.kt                 Komoot-Abbiegetypen → Text + Pfeil
     ├── nav/VoicePrompts.kt         Ereignis → Sprachclip
     ├── nav/VoiceAnnouncer.kt       Abspielen über LightAudio
-    ├── geo/                        Geometrie, GPX
-    └── ui/RouteView.kt             Routenzeichnung
+    ├── geo/                        Geometrie, GPX, Kartenprojektion (MapView, getestet)
+    ├── map/TileStore.kt            Kartenkacheln laden + zwischenspeichern
+    └── ui/RouteView.kt             Karte + Route zeichnen
 ```
 
 ## Upload zu Komoot
@@ -53,6 +56,13 @@ tool/
 `POST /v007/tours/?data_type=gpx` und setzt danach Name und Sportart (`PATCH /v007/tours/{id}`).
 Welche Dateien schon oben sind, merkt sich das Tool (DataStore); die GPX-Dateien bleiben zusätzlich
 lokal erhalten. Sportart ändern: Parameter `sport` (z. B. `racebike`, `mtb`, `e_touringbicycle`).
+
+## Karte
+
+Kartendaten © [OpenStreetMap-Mitwirkende](https://www.openstreetmap.org/copyright), Kacheln von
+[CARTO](https://carto.com/attributions) (Basemaps, frei für nicht-kommerzielle Nutzung mit Namensnennung).
+Eine Kartenbibliothek wie osmdroid erlaubt das Light-SDK nicht – die Kacheln werden deshalb selbst
+gezeichnet (`TileStore` + `RouteView`), mit höchstens zwei gleichzeitigen Downloads.
 
 ## Sprachansagen
 

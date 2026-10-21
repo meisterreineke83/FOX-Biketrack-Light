@@ -16,6 +16,10 @@ class Store(private val ds: DataStore<Preferences>) {
     private val name = stringPreferencesKey("komoot_name")
     private val voice = booleanPreferencesKey("voice_enabled")
     private val uploaded = stringSetPreferencesKey("uploaded_tracks")
+    private val map = booleanPreferencesKey("map_enabled")
+
+    suspend fun mapEnabled(): Boolean = ds.data.first()[map] ?: true
+    suspend fun setMapEnabled(on: Boolean) { ds.edit { it[map] = on } }
 
     /** Dateinamen der Aufzeichnungen, die schon bei Komoot sind. */
     suspend fun uploadedTracks(): Set<String> = ds.data.first()[uploaded].orEmpty()

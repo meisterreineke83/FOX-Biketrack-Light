@@ -3,6 +3,8 @@ package de.komoonlight.ui
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -11,14 +13,18 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import de.komoonlight.geo.MapView
 import de.komoonlight.geo.Pt
-import kotlin.math.PI
-import kotlin.math.cos
+import de.komoonlight.map.MapStyle
+import de.komoonlight.map.TileStore
+import kotlin.math.roundToInt
 
 /**
- * Kartenlose Routenansicht fürs S/W-Display:
- * Route = durchgezogene Linie, eigener Track = gepunktet, Position = Pfeil in der Mitte.
- * Norden ist oben. [radiusM] = Meter vom Zentrum bis zum Rand.
+ * Routenansicht fürs Light-Display, optional mit OpenStreetMap-Karte darunter:
+ * Route = breite Linie (mit Rand, damit sie auf der Karte heraussticht), eigener Track = gepunktet,
+ * Position = Pfeil in der Mitte. Norden ist oben. [radiusM] = Meter vom Zentrum bis zum Rand.
  */
 @Composable
 fun RouteView(
@@ -29,35 +35,57 @@ fun RouteView(
     radiusM: Double,
     content: Color,
     background: Color,
+    tiles: TileStore?,
+    mapStyle: MapStyle,
     modifier: Modifier = Modifier.fillMaxSize(),
 ) {
+    // Neu zeichnen, sobald eine Kachel nachgeladen wurde
+    val tileVersion = tiles?.version?.collectAsState()?.value ?: 0
+
     Canvas(modifier) {
+        tileVersion // im Zeichenblock gelesen → Invalidierung
         val center = position ?: route.firstOrNull() ?: return@Canvas
-        val pxPerM = (minOf(size.width, size.height) / 2f) / radiusM.toFloat()
-        val mPerDegLat = 111_320.0
-        val mPerDegLon = 111_320.0 * cos(center.lat * PI / 180)
+        val map = MapView(center, radiusM, size.width, size.height)
+        fun o(p: Pt) = Offset(map.x(p), map.y(p))
 
-        fun toScreen(p: Pt) = Offset(
-            x = size.width / 2f + ((p.lon - center.lon) * mPerDegLon).toFloat() * pxPerM,
-            y = size.height / 2f - ((p.lat - center.lat) * mPerDegLat).toFloat() * pxPerM,
-        )
-
-        fun pathOf(pts: List<Pt>) = Path().apply {
-            pts.forEachIndexed { i, p ->
-                val o = toScreen(p)
-                if (i == 0) moveTo(o.x, o.y) else lineTo(o.x, o.y)
+        // 1. Karte
+        if (tiles != null) {
+            for (t in map.tiles()) {
+                val img = tiles.get(mapStyle, t.z, t.x, t.y) ?: continue
+                val s = t.size.roundToInt() + 1 // +1 gegen Haarlinien zwischen Kacheln
+                drawImage(
+                    image = img,
+                    srcOffset = IntOffset.Zero,
+                    srcSize = IntSize(img.width, img.height),
+                    dstOffset = IntOffset(t.left.roundToInt(), t.top.roundToInt()),
+                    dstSize = IntSize(s, s),
+                )
             }
         }
 
-        if (route.size > 1) drawPath(pathOf(route), content, style = Stroke(width = 10f, cap = StrokeCap.Round))
+        fun pathOf(pts: List<Pt>) = Path().apply {
+            pts.forEachIndexed { i, p ->
+                val q = o(p)
+                if (i == 0) moveTo(q.x, q.y) else lineTo(q.x, q.y)
+            }
+        }
 
+        // 2. Route – mit Rand in Hintergrundfarbe, damit sie sich von Straßen abhebt
+        if (route.size > 1) {
+            val path = pathOf(route)
+            if (tiles != null) drawPath(path, background, style = Stroke(width = 18f, cap = StrokeCap.Round))
+            drawPath(path, content, style = Stroke(width = 10f, cap = StrokeCap.Round))
+        }
+
+        // 3. Eigener Weg
         if (track.size > 1) drawPath(
             pathOf(track), content,
             style = Stroke(width = 5f, pathEffect = PathEffect.dashPathEffect(floatArrayOf(4f, 14f)), cap = StrokeCap.Round),
         )
 
+        // 4. Position
         if (position != null) {
-            val c = Offset(size.width / 2f, size.height / 2f)
+            val c = o(position)
             val arrow = Path().apply {
                 moveTo(c.x, c.y - 34f); lineTo(c.x + 22f, c.y + 24f)
                 lineTo(c.x, c.y + 12f); lineTo(c.x - 22f, c.y + 24f); close()
