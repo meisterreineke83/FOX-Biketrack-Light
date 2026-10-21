@@ -1,15 +1,18 @@
-# komoonlight
+# FOX Spur Light
 
-Ein kleines Programm für das Light Phone III mit Zugriff auf meinen Komoot-Account.
-Nutzbar als Navigationsgerät für das Fahrrad.
+Ein kleines Tool für das Light Phone III zum Aufzeichnen und Navigieren beim **Radfahren und Wandern** –
+mit Zugriff auf meinen Komoot-Account (geplante Touren laden, Aufzeichnungen hochladen).
+
+> FOX Spur Light ist ein privates Projekt und steht in keiner Verbindung zu Komoot.
 
 Das Repo enthält das komplette [Light SDK](https://github.com/lightphone/light-sdk)
-(siehe [README.light-sdk.md](README.light-sdk.md)); der eigene Code liegt nur in `tool/`.
+(siehe [README.light-sdk.md](README.light-sdk.md)); der eigene Code liegt nur in `tool/`
+(Kotlin-Paket `de.komoonlight` – der Name aus der Anfangszeit).
 
 > Nutzt dieselben **inoffiziellen** Komoot-Endpunkte wie [KomootGPX](https://pypi.org/project/komootgpx/).
 > Nur für den privaten Gebrauch mit dem eigenen Account. Komoot kann die Endpunkte jederzeit ändern.
 
-## Funktionen (v0.9)
+## Funktionen (v0.10)
 
 - **Rad oder Wandern**: ohne Route sofort aufzeichnen – Kilometer, Zeit, Ø-Tempo
   (geht auch ohne Komoot-Anmeldung). Bei geplanten Touren gilt die in Komoot geplante Sportart.
@@ -86,7 +89,7 @@ prüft, dass zu jeder möglichen Ansage ein Clip existiert. Straßennamen werden
 ## Bauen
 
 Jeder Push auf `main` baut das Tool per GitHub Actions („Tool bauen“). Die fertige APK liegt
-im jeweiligen Lauf unter **Artifacts → komoonlight-debug-apk**.
+im jeweiligen Lauf unter **Artifacts → fox-spur-light-debug-apk**.
 
 Lokal (Android Studio oder Kommandozeile, JDK 17 + Android SDK):
 

@@ -293,7 +293,7 @@ class NavScreen(
             ref, ref?.let { Activity.fromKomootSport(it.tour.sport) } ?: freeActivity,
             lightContext.fileShare, sealedActivity.vibrator,
             VoiceAnnouncer(DefaultLightAudio(sealedActivity)), Store(lightContext.dataStore),
-            TileStore(lightContext.filesDir, "FOX-Biketrack-Light (Light Phone III; github.com/meisterreineke83/FOX-Biketrack-Light)"),
+            TileStore(lightContext.filesDir, "FOX-Spur-Light (Light Phone III; github.com/meisterreineke83/FOX-Spur-Light)"),
         )
 
     private var resumeCount by mutableIntStateOf(0)

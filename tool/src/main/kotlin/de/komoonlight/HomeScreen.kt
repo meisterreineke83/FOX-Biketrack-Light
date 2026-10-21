@@ -176,7 +176,7 @@ class HomeScreen(sealedActivity: SealedLightActivity) : LightScreen<Unit, HomeVi
         LightTheme(colors = themeColors) {
             Column(Modifier.fillMaxSize().background(LightThemeTokens.colors.background)) {
                 LightTopBar(
-                    center = LightTopBarCenter.Text("Komoot"),
+                    center = LightTopBarCenter.Text("FOX Spur Light"),
                     rightButton = if (session != null) LightBarButton.Text("Abmelden", onClick = { viewModel.logout() }) else null,
                     modifier = Modifier.padding(bottom = 1f.gridUnitsAsDp()),
                 )

@@ -10,7 +10,7 @@ object Gpx {
     /** [type] z. B. „cycling“ oder „hiking“. */
     fun write(w: Writer, name: String, track: List<Pt>, type: String = "cycling") {
         w.write("""<?xml version="1.0" encoding="UTF-8"?>""" + "\n")
-        w.write("""<gpx version="1.1" creator="komoonlight" xmlns="http://www.topografix.com/GPX/1/1">""" + "\n")
+        w.write("""<gpx version="1.1" creator="FOX Spur Light" xmlns="http://www.topografix.com/GPX/1/1">""" + "\n")
         w.write("<trk><name>${escape(name)}</name><type>${escape(type)}</type><trkseg>\n")
         for (p in track) {
             w.write("""<trkpt lat="${p.lat}" lon="${p.lon}">""")

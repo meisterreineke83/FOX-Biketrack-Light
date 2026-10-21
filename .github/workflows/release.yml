@@ -54,7 +54,7 @@ jobs:
         run: |
           TAG="${{ steps.ver.outputs.tag }}"
           SRC=$(ls tool/build/outputs/apk/debug/*.apk | head -1)
-          OUT="komoonlight-${TAG}.apk"
+          OUT="fox-spur-light-${TAG}.apk"
           cp "$SRC" "$OUT"
           echo "file=$OUT" >> "$GITHUB_OUTPUT"
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
@@ -66,5 +66,5 @@ jobs:
         run: |
           gh release create "${{ steps.apk.outputs.tag }}" "${{ steps.apk.outputs.file }}" \
             --target "${{ github.sha }}" \
-            --title "komoonlight ${{ steps.apk.outputs.tag }}" \
-            --notes "Light-Phone-III-Tool für Komoot-Navigation. Installierbar über BrightMarket oder per Sideload."
+            --title "FOX Spur Light ${{ steps.apk.outputs.tag }}" \
+            --notes "Light-Phone-III-Tool zum Aufzeichnen und Navigieren beim Radfahren und Wandern. Installierbar über BrightMarket oder per Sideload."

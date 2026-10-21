@@ -41,7 +41,7 @@ jobs:
       - name: APK hochladen
         uses: actions/upload-artifact@v4
         with:
-          name: komoonlight-debug-apk
+          name: fox-spur-light-debug-apk
           path: tool/build/outputs/apk/debug/*.apk
           retention-days: 30
 

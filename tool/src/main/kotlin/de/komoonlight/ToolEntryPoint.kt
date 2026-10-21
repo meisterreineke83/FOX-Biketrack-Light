@@ -16,13 +16,13 @@ object ToolEntryPoint : LightEntryPoint {
      * herunterladbar – von dort direkt in Komoot hochladen.
      */
     override fun getToolManagerManifest() = ClientToolManifest(
-        title = "Komoot",
+        title = "FOX Spur Light",
         roots = listOf(
             ClientLeafNode(
                 FileBrowserSpec(
                     label = "Aufzeichnungen",
                     path = TRACKS_DIR,
-                    headerText = "GPX-Dateien deiner Fahrten. Herunterladen und in Komoot unter „Aktivität hochladen“ importieren.",
+                    headerText = "GPX-Dateien deiner Rad- und Wandertouren. Herunterladen und in Komoot unter „Aktivität hochladen“ importieren.",
                 )
             )
         ),
