@@ -26,6 +26,7 @@ import com.thelightphone.sdk.LightScreen
 import com.thelightphone.sdk.LightViewModel
 import com.thelightphone.sdk.LightVibrator
 import com.thelightphone.sdk.SealedLightActivity
+import com.thelightphone.sdk.audio.DefaultLightAudio
 import com.thelightphone.sdk.checkPermission
 import com.thelightphone.sdk.rememberPermissionRequestLauncher
 import com.thelightphone.sdk.shared.LightServiceMethod
@@ -49,6 +50,8 @@ import de.komoonlight.location.lightOsLocations
 import de.komoonlight.nav.NavEvent
 import de.komoonlight.nav.NavStatus
 import de.komoonlight.nav.Navigator
+import de.komoonlight.nav.VoiceAnnouncer
+import de.komoonlight.nav.VoicePrompts
 import de.komoonlight.ui.RouteView
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -65,6 +68,8 @@ class NavViewModel(
     val tour: KomootClient.TourInfo,
     private val fileShare: LightFileShare,
     private val vibrator: LightVibrator,
+    private val voice: VoiceAnnouncer,
+    private val store: Store,
 ) : LightViewModel<Unit>() {
 
     val route = MutableStateFlow<List<Pt>>(emptyList())
@@ -76,11 +81,17 @@ class NavViewModel(
     val recording = MutableStateFlow(false)
     val track = MutableStateFlow<List<Pt>>(emptyList())
     val trackDistanceM = MutableStateFlow(0.0)
+    val voiceOn = MutableStateFlow(true)
 
     private var navigator: Navigator? = null
     private var gpsJob: Job? = null
+    private var announcedStart = false
 
     init {
+        viewModelScope.launch {
+            voiceOn.value = store.voiceEnabled()
+            voice.enabled = voiceOn.value
+        }
         viewModelScope.launch {
             try {
                 val r = client.route(session, tour.id)
@@ -110,13 +121,15 @@ class NavViewModel(
             track.value = track.value + p
         }
         val nav = navigator ?: return
+        if (!announcedStart) { announcedStart = true; voice.play(VoicePrompts.START) }
         val (s, events) = nav.update(p)
         status.value = s
         events.forEach(::react)
     }
 
-    /** Vibration als Hinweis – Sprachansage folgt in einer späteren Version. */
+    /** Sprachansage + kurze Vibration (falls der Ton aus ist oder nicht gehört wird). */
     private fun react(e: NavEvent) {
+        voice.announce(e)
         when (e) {
             is NavEvent.Upcoming -> vibrator.vibrate(200.milliseconds)
             is NavEvent.Now -> viewModelScope.launch {
@@ -125,6 +138,12 @@ class NavViewModel(
             NavEvent.OffRoute -> vibrator.vibrate(700.milliseconds)
             else -> Unit
         }
+    }
+
+    fun toggleVoice() {
+        voiceOn.value = !voiceOn.value
+        voice.enabled = voiceOn.value
+        viewModelScope.launch { store.setVoiceEnabled(voiceOn.value) }
     }
 
     fun zoom(dir: Int) { zoomM.value = (zoomM.value * if (dir > 0) 0.5 else 2.0).coerceIn(75.0, 5000.0) }
@@ -152,6 +171,7 @@ class NavViewModel(
 
     override fun onCleared() {
         if (recording.value) saveTrack()
+        voice.release()
     }
 }
 
@@ -164,7 +184,10 @@ class NavScreen(
 
     override val viewModelClass: Class<NavViewModel> get() = NavViewModel::class.java
     override fun createViewModel() =
-        NavViewModel(client, session, tour, lightContext.fileShare, sealedActivity.vibrator)
+        NavViewModel(
+            client, session, tour, lightContext.fileShare, sealedActivity.vibrator,
+            VoiceAnnouncer(DefaultLightAudio(sealedActivity)), Store(lightContext.dataStore),
+        )
 
     private var resumeCount by mutableIntStateOf(0)
     override fun willShow() { resumeCount++ }
@@ -180,6 +203,7 @@ class NavScreen(
         val zoom by viewModel.zoomM.collectAsState()
         val rec by viewModel.recording.collectAsState()
         val recDist by viewModel.trackDistanceM.collectAsState()
+        val voiceOn by viewModel.voiceOn.collectAsState()
 
         // GPS-Berechtigung über LightOS prüfen/anfragen, dann starten
         val permission = rememberPermissionRequestLauncher(Manifest.permission.ACCESS_FINE_LOCATION)
@@ -196,6 +220,7 @@ class NavScreen(
                 LightTopBar(
                     leftButton = LightBarButton.LightIcon(icon = LightIcons.BACK, onClick = { goBack() }),
                     center = LightTopBarCenter.Text(tour.name),
+                    rightButton = LightBarButton.Text(if (voiceOn) "Ton an" else "Stumm", onClick = { viewModel.toggleVoice() }),
                 )
 
                 Header(status, pos, message, rec, recDist)

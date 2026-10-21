@@ -2,16 +2,21 @@ package de.komoonlight
 
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import de.komoonlight.komoot.KomootClient
 import kotlinx.coroutines.flow.first
 
-/** Speichert User-ID + API-Token (nie das Passwort). */
+/** Speichert User-ID + API-Token (nie das Passwort) und Einstellungen. */
 class Store(private val ds: DataStore<Preferences>) {
     private val uid = stringPreferencesKey("komoot_uid")
     private val tok = stringPreferencesKey("komoot_token")
     private val name = stringPreferencesKey("komoot_name")
+    private val voice = booleanPreferencesKey("voice_enabled")
+
+    suspend fun voiceEnabled(): Boolean = ds.data.first()[voice] ?: true
+    suspend fun setVoiceEnabled(on: Boolean) { ds.edit { it[voice] = on } }
 
     suspend fun session(): KomootClient.Session? {
         val p = ds.data.first()
