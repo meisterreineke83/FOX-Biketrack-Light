@@ -85,13 +85,7 @@ Am bequemsten per WLAN über den Tool Manager im Entwicklermodus
 
 ## Release / BrightMarket
 
-Neue Version veröffentlichen: `versionCode` und `versionName` in `tool/lighttool.toml` erhöhen,
-committen, dann einen Tag pushen:
-
-```bash
-git tag v0.3.0 && git push origin v0.3.0
-```
-
-Der Workflow „Release“ baut die APK und legt einen GitHub-Release mit genau einer `.apk` an –
+Neue Version veröffentlichen: `versionCode` und `versionName` in `tool/lighttool.toml` erhöhen
+und auf `main` pushen. Der Workflow „Release“ baut die APK und legt einen GitHub-Release mit genau einer `.apk` an –
 so findet [BrightMarket](https://github.com/gi-os/BrightMarket) die App (per QR-Code das Repo
 hinzufügen). Der `versionCode` muss bei jedem Release steigen, sonst gibt es kein Update.
