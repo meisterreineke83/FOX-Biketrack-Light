@@ -54,6 +54,7 @@ import de.komoonlight.geo.Geo
 import de.komoonlight.geo.Gpx
 import de.komoonlight.geo.Pt
 import de.komoonlight.komoot.KomootClient
+import de.komoonlight.location.GpsEvent
 import de.komoonlight.location.lightOsLocations
 import de.komoonlight.nav.NavEvent
 import de.komoonlight.nav.NavStatus
@@ -113,6 +114,8 @@ class NavViewModel(
 
     val route = MutableStateFlow<List<Pt>>(emptyList())
     val position = MutableStateFlow<Pt?>(null)
+    /** Warum noch keine (genaue) Position da ist – null, solange alles passt. */
+    val gpsInfo = MutableStateFlow<String?>(null)
     val status = MutableStateFlow<NavStatus?>(null)
     val message = MutableStateFlow<String?>(if (ref != null) "Lade Route…" else null)
     private val title = ref?.tour?.name ?: activity.tourName
@@ -168,9 +171,21 @@ class NavViewModel(
         following.value = true; panned.value = false
         if (mode.value == Mode.FREE_RIDE && track.value.isEmpty()) { resetRecording(); recording.value = true }
         gpsJob = viewModelScope.launch {
-            lightOsLocations().collect { onPosition(it) }
+            try {
+                lightOsLocations().collect { e ->
+                    when (e) {
+                        is GpsEvent.Fix -> onPosition(e.pt, e.accuracyM)
+                        is GpsEvent.Waiting -> gpsInfo.value = e.reason
+                    }
+                }
+            } finally {
+                if (gpsJob === coroutineContext[Job]) gpsJob = null // damit ein erneuter Start (z. B. nach Rückkehr in die App) wieder klappt
+            }
         }
     }
+
+    /** Keine GPS-Berechtigung – im Kopf anzeigen statt endlos zu warten. */
+    fun gpsDenied() { gpsInfo.value = "Keine Standort-Berechtigung für Spur" }
 
     private fun stopGps() {
         gpsJob?.cancel(); gpsJob = null
@@ -204,8 +219,14 @@ class NavViewModel(
         mode.value = Mode.PREVIEW
     }
 
-    private fun onPosition(p: Pt) {
+    private fun onPosition(p: Pt, accuracyM: Double) {
         position.value = p
+        // Grobe Fixes zeigen die Position schon an, aufgezeichnet/navigiert wird erst ab ±30 m
+        if (accuracyM > GOOD_ACCURACY_M) {
+            gpsInfo.value = "Ungenau (±${accuracyM.toInt()} m) – Aufzeichnung startet bei ±${GOOD_ACCURACY_M.toInt()} m"
+            return
+        }
+        gpsInfo.value = null
         val prev = lastMoved
         if (prev == null) lastMoved = p
         else if (Geo.dist(prev, p) > 8) { heading.value = Geo.bearing(prev, p); lastMoved = p }
@@ -327,6 +348,7 @@ class NavScreen(
         val route by viewModel.route.collectAsState()
         val track by viewModel.track.collectAsState()
         val pos by viewModel.position.collectAsState()
+        val gpsInfo by viewModel.gpsInfo.collectAsState()
         val status by viewModel.status.collectAsState()
         val message by viewModel.message.collectAsState()
         val zoom by viewModel.zoomM.collectAsState()
@@ -350,7 +372,7 @@ class NavScreen(
             val granted = checkPermission(Manifest.permission.ACCESS_FINE_LOCATION).asKotlinResult
                 .map { it.permissionResult == LightServiceMethod.GetPermission.Result.Granted }
                 .getOrDefault(false)
-            if (granted) viewModel.startGps() else permission?.launch()
+            if (granted) viewModel.startGps() else { viewModel.gpsDenied(); permission?.launch() }
         }
 
         LightTheme(colors = themeColors) {
@@ -367,8 +389,8 @@ class NavScreen(
                 )
 
                 when (mode) {
-                    Mode.FREE_RIDE -> FreeRideHeader(pos, message, rec, recDist, movingMs, autoPaused)
-                    Mode.NAVIGATE -> Header(status, pos, message, rec, recDist, autoPaused)
+                    Mode.FREE_RIDE -> FreeRideHeader(pos, gpsInfo, message, rec, recDist, movingMs, autoPaused)
+                    Mode.NAVIGATE -> Header(status, pos, gpsInfo, message, rec, recDist, autoPaused)
                     Mode.PREVIEW, Mode.VIEW -> TourHeader(message)
                 }
 
@@ -482,7 +504,7 @@ class NavScreen(
     }
 
     @Composable
-    private fun FreeRideHeader(pos: Pt?, message: String?, rec: Boolean, distM: Double, ms: Long, autoPaused: Boolean) {
+    private fun FreeRideHeader(pos: Pt?, gpsInfo: String?, message: String?, rec: Boolean, distM: Double, ms: Long, autoPaused: Boolean) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp)) {
             when {
                 pos == null -> LightText("Warte auf GPS…", LightTextVariant.Heading)
@@ -499,12 +521,13 @@ class NavScreen(
                 !rec && pos != null -> LightText("Gestoppt", LightTextVariant.Detail, lighten = true)
                 rec && autoPaused -> LightText("Pause – Aufzeichnung läuft weiter, sobald du fährst", LightTextVariant.Detail, lighten = true)
             }
+            gpsInfo?.let { LightText(it, LightTextVariant.Detail, lighten = true) }
             message?.let { LightText(it, LightTextVariant.Fine, lighten = true) }
         }
     }
 
     @Composable
-    private fun Header(status: NavStatus?, pos: Pt?, message: String?, rec: Boolean, recDist: Double, autoPaused: Boolean) {
+    private fun Header(status: NavStatus?, pos: Pt?, gpsInfo: String?, message: String?, rec: Boolean, recDist: Double, autoPaused: Boolean) {
         Column(Modifier.fillMaxWidth().padding(horizontal = 1f.gridUnitsAsDp(), vertical = 8.dp)) {
             val turn = status?.nextTurn
             val d = status?.nextTurnInM
@@ -527,6 +550,7 @@ class NavScreen(
                 (if (autoPaused) "‖ Pause · " else "● Aufnahme · ") + "%.2f km".format(recDist / 1000),
                 LightTextVariant.Detail,
             )
+            gpsInfo?.let { LightText(it, LightTextVariant.Detail, lighten = true) }
             if (pos != null && message != null) LightText(message, LightTextVariant.Fine, lighten = true)
         }
     }
@@ -534,6 +558,9 @@ class NavScreen(
 
 
 /** Zustände des Navigationsscreens. */
+/** Ab dieser Genauigkeit wird aufgezeichnet und navigiert. */
+private const val GOOD_ACCURACY_M = 30.0
+
 enum class Mode(val usesGps: Boolean) {
     /** „Einfach losfahren“ – nur aufzeichnen. */
     FREE_RIDE(true),
